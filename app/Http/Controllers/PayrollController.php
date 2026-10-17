@@ -50,8 +50,8 @@ class PayrollController extends Controller
 
         $companyId = session('current_company_id');
 
-        $exists = PayrollPeriod::where('start_date', $validated['start_date'])
-            ->where('end_date', $validated['end_date'])
+        $exists = PayrollPeriod::whereDate('start_date', $validated['start_date'])
+            ->whereDate('end_date', $validated['end_date'])
             ->exists();
 
         if ($exists) {

@@ -106,8 +106,8 @@ class PayrollCalculationAndApprovalTest extends TestCase
             ->get(route('payroll.index'));
 
         $response->assertStatus(200);
-        $response->assertSee('Workforce Payroll & Wage Processing');
-        $response->assertSee('Run New Payroll Batch');
+        $response->assertSee('Workforce Payroll');
+        $response->assertSee('Generate New Payroll Batch');
     }
 
     public function test_can_view_create_payroll_batch_form(): void
@@ -117,8 +117,8 @@ class PayrollCalculationAndApprovalTest extends TestCase
             ->get(route('payroll.create'));
 
         $response->assertStatus(200);
-        $response->assertSee('Generate New Payroll Period');
-        $response->assertSee('Calculate & Generate Wages');
+        $response->assertSee('Generate Payroll Batch');
+        $response->assertSee('Batch Title');
     }
 
     public function test_can_generate_payroll_batch_from_attendance_and_overtime(): void
@@ -281,12 +281,12 @@ class PayrollCalculationAndApprovalTest extends TestCase
             ->get(route('payroll.payslip', [$period, $record]));
 
         $response->assertStatus(200);
-        $response->assertSee('PAYSLIP / SALARY CERTIFICATE');
+        $response->assertSee('Worker Salary Slip');
         $response->assertSee('Anil Verma');
         $response->assertSee('EMP-SAL-01');
         $response->assertSee('52,000.00');
         $response->assertSee('50,900.00');
-        $response->assertSee('Provident Fund');
+        $response->assertSee('Statutory PF');
     }
 
     public function test_cannot_create_duplicate_payroll_period_for_same_dates(): void

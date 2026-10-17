@@ -71,17 +71,35 @@ As mandated by Section 8 of the project rules:
 
 ---
 
-## 5. Immediate Action Plan
+## 5. Verification & Completed Milestones
 
-In accordance with Section 10 ("select the earliest incomplete or failing item in the six-phase roadmap"):
-- **Target**: **Phase 3 — Workforce and Payroll**
-- **Action**:
-  1. Create `PayrollPeriod` and `PayrollRecord` Eloquent models with company and employee relationships.
-  2. Implement `PayrollController` with:
-     - Index view: List payroll periods with status indicators and totals.
-     - Create/Generate action: Deterministically calculate basic pay, days worked, overtime hours, and overtime pay derived directly from `daily_attendance`.
-     - Detail view: Itemized employee payroll breakdown with payslip inspection modal.
-     - Approval action: Workflow transition from `draft` to `approved` to `disbursed`.
-  3. Create Blade templates matching Stitch tokens: `resources/views/payroll/index.blade.php`, `resources/views/payroll/show.blade.php`, `resources/views/payroll/create.blade.php`.
-  4. Register routes under `/payroll` and link in the main navigation under `PEOPLE`.
-  5. Write automated tests (`PayrollCalculationAndApprovalTest.php`) verifying deterministic calculation from attendance and state machine enforcement.
+### Phase 3 — Workforce and Payroll (Completed & Verified)
+1. **Models & Schema**:
+   - `PayrollPeriod` and `PayrollRecord` Eloquent models connected with `Company`, `Employee`, `User` (approver), and `DailyAttendance`.
+2. **Controller & Business Rules (`PayrollController.php`)**:
+   - `index`: Displays summary KPI cards (Total Disbursed, Pending Approval, Active Workforce) and historical payroll registers.
+   - `create` & `store`: Generates deterministic payroll batches by inspecting actual daily attendance records in the period.
+     - Daily wage / machine operators: `days_worked * daily_wage_rate`, overtime hourly rate = `(daily_wage_rate / 8) * 1.5`.
+     - Permanent / salaried employees: Base salary pro-rated against 26 standard working days, overtime hourly rate = `(monthly_salary / 208) * 1.5`.
+     - Site allowances: Applicable for >10 days active site deployment.
+     - Statutory deductions: 5% Provident Fund contribution for salaried staff.
+   - `show`: Interactive payroll batch register with worker-by-worker earnings, deductions, and site assignments.
+   - `approve`: Enforces supervisor/HR sign-off before wages can be disbursed.
+   - `disburse`: Marks records as paid and finalizes disbursement. Re-approval or post-disbursement alterations are strictly blocked.
+   - `payslip`: Printable salary slip / certificate with official GSTIN, earnings breakdown, statutory deductions, net transfer amount, and sign-off blocks.
+3. **Automated Test Suite**:
+   - Created `tests/Feature/PayrollCalculationAndApprovalTest.php` with 6 dedicated test cases covering batch creation from muster, overtime rate calculation, approval state machine, disbursement locks, and payslip rendering.
+   - Full test suite: **33 tests, 193 assertions, 0 errors**.
+4. **Visual & UI Compliance**:
+   - Styled with Stitch design tokens (Plus Jakarta Sans, smooth rounded cards, action blue accents, clean status badges).
+   - "Enterprise Construction" banner card removed from all layout templates and verified clean across all rendered views.
+
+---
+
+## 6. Next Implementation Target: Phase 4 Advanced Procurement & GRN
+
+The next item on the six-phase roadmap is expanding Phase 4:
+- Dedicated Purchase Request (PR) workflow with multi-level approval before PO issuance.
+- Goods Receipt Note (GRN) quality inspection workflows with accepted vs rejected stock quantities, batch numbers, and delivery challan attachments.
+- Site-to-site stock return workflows with automated ledger entries.
+
