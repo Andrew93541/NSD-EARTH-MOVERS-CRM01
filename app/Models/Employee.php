@@ -47,6 +47,11 @@ class Employee extends Model
         return $this->hasMany(DailyAttendance::class);
     }
 
+    public function payrollRecords(): HasMany
+    {
+        return $this->hasMany(PayrollRecord::class);
+    }
+
     public function getFullNameAttribute(): string
     {
         return trim($this->first_name . ' ' . ($this->last_name ?? ''));
