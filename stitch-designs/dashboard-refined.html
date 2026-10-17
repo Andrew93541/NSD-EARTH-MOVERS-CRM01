@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>BuildFlow - Construction CRM Dashboard</title>
+<!-- Tailwind CSS v3 with Forms & Container-Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration for Custom Soft Palettes -->
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            canvas: '#e9eef5',
+            panel: '#ffffff',
+            badgePeach: '#fef2ee',
+            badgePeachText: '#e06d53',
+            badgeBlue: '#eff6ff',
+            badgeBlueText: '#3b82f6',
+          },
+          borderRadius: {
+            '2xl': '20px',
+            '3xl': '28px',
+            '4xl': '36px',
+          },
+          boxShadow: {
+            'card': '0 8px 30px -4px rgba(18, 38, 63, 0.04), 0 2px 6px -1px rgba(18, 38, 63, 0.02)',
+            'pill': '0 6px 20px -2px rgba(37, 99, 235, 0.45)',
+            'canvas': '0 25px 60px -15px rgba(27, 46, 94, 0.12)',
+            'subtle': '0 1px 3px rgba(0,0,0,0.03)',
+          }
+        }
+      }
+    }
+  </script>
+<!-- Custom Styles: Font, Scrollbar & Dot Grid Chart -->
+<style data-purpose="typography-and-core">
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #dbe2ea;
+      color: #1a202c;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Custom scrollbar for clean internal scrolling */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #9ca3af;
+    }
+  </style>
+<style data-purpose="card-effects">
+    .soft-card {
+      background: #ffffff;
+      border: 1px solid rgba(226, 232, 240, 0.7);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px -4px rgba(30, 41, 59, 0.03), 0 2px 6px -1px rgba(30, 41, 59, 0.02);
+      transition: all 0.2s ease;
+    }
+    .soft-card-hover:hover {
+      box-shadow: 0 16px 36px -4px rgba(30, 41, 59, 0.06);
+    }
+  </style>
+</head>
+<body class="min-h-screen p-3 md:p-6 lg:p-8 flex items-center justify-center">
+<!-- BEGIN: MainAppCanvas -->
+<!-- Outer framed rounded canvas mirroring the reference design wrapper -->
+<div class="w-full max-w-[1720px] bg-[#f7f9fc] rounded-[36px] shadow-canvas border border-white/60 p-4 lg:p-6 flex flex-col xl:flex-row gap-6 overflow-hidden min-h-[960px]">
+<!-- BEGIN: Sidebar -->
+<aside class="w-full xl:w-[270px] flex-shrink-0 flex flex-col justify-between" data-purpose="sidebar-navigation">
+<div class="space-y-6">
+<!-- Brand Logo Row -->
+<div class="flex items-center gap-3 px-3 pt-2">
+<div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-sky-400 flex items-center justify-center shadow-md shadow-blue-500/20 text-white font-bold">
+<svg class="w-6 h-6" fill="currentColor" viewbox="0 0 24 24">
+<path d="M12 2L2 7L12 12L22 7L12 2Z"></path>
+<path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" opacity="0.85"></path>
+</svg>
+</div>
+<div>
+<span class="text-xl font-bold tracking-tight text-gray-900">BuildFlow</span>
+<span class="block text-[11px] font-medium text-blue-600 tracking-wider uppercase -mt-0.5">Construction CRM</span>
+</div>
+</div>
+<!-- Navigation Menus -->
+<nav class="space-y-5 text-sm font-medium">
+<!-- Main Menu Section -->
+<div>
+<div class="px-4 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Main Menu</div>
+<ul class="space-y-1">
+<!-- Active Item: Royal Blue Pill -->
+<li>
+<a class="flex items-center gap-3.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold shadow-pill transition-all duration-200" href="#dashboard">
+<svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<rect height="7" rx="1.5" width="7" x="3" y="3"></rect>
+<rect height="7" rx="1.5" width="7" x="14" y="3"></rect>
+<rect height="7" rx="1.5" width="7" x="14" y="14"></rect>
+<rect height="7" rx="1.5" width="7" x="3" y="14"></rect>
+</svg>
+<span>Dashboard</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#projects">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Projects</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#tasks">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Tasks &amp; Work Orders</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#site-ops">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Site Operations</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#materials">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Materials &amp; Stock</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#employees">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Labor Muster Roll</span>
+</a>
+</li>
+</ul>
+</div>
+<!-- Secondary Menu Section -->
+<div>
+<div class="px-4 mb-2 text-xs font-semibold tracking-wider text-gray-400 uppercase">Management &amp; Finance</div>
+<ul class="space-y-1">
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#billing">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Client RA Billing</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#analytics">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Project Analytics</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-white/80 transition-all" href="#settings">
+<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Settings</span>
+</a>
+</li>
+<li>
+<a class="flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-gray-500 hover:text-rose-600 hover:bg-rose-50/50 transition-all" href="#logout">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewbox="0 0 24 24">
+<path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Log out</span>
+</a>
+</li>
+</ul>
+</div>
+</nav>
+</div>
+<!-- Bottom Upgrade Card (Pastel Peach/Pink Tinted - Exact Mirror from image) -->
+<div class="mt-8 rounded-3xl p-5 bg-gradient-to-b from-[#fef5f0] via-[#fdf7f3] to-[#edf4fc] border border-orange-100/70 text-center relative overflow-hidden shadow-sm" data-purpose="upgrade-card">
+<!-- Floating soft glow shape -->
+<div class="absolute -top-10 -right-10 w-24 h-24 bg-rose-200/40 rounded-full blur-xl pointer-events-none"></div>
+<div class="w-11 h-11 mx-auto rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-blue-500/25 mb-3">
+<!-- Crown / Shield icon -->
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<path d="M5 16L3 5L8.5 10L12 4L15.5 10L21 5L19 16H5M19 19C19 19.6 18.6 20 18 20H6C5.4 20 5 19.6 5 19V17H19V19Z"></path>
+</svg>
+</div>
+<h4 class="text-sm font-bold text-gray-900 tracking-tight">Enterprise Construction</h4>
+<p class="text-[12px] text-gray-500 mt-1.5 leading-relaxed px-1">
+          Automate multi-site muster rolls, subcontractor RA bills, and real-time concrete tracking.
+        </p>
+<button class="mt-4 w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-500/30 hover:brightness-105 transition-all" type="button">
+          Upgrade Tier
+        </button>
+</div>
+</aside>
+<!-- END: Sidebar -->
+<!-- BEGIN: MainContentArea -->
+<main class="flex-1 flex flex-col gap-6 overflow-y-auto pr-0 lg:pr-1" data-purpose="dashboard-main-view">
+<!-- BEGIN: TopBar -->
+<header class="flex flex-col lg:flex-row lg:items-center justify-between gap-4" data-purpose="top-navigation">
+<!-- Search bar (Wide pill) -->
+<div class="relative w-full lg:max-w-md">
+<span class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-gray-400">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<input class="w-full pl-11 pr-4 py-2.5 text-sm bg-white border border-gray-200/80 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-gray-400 shadow-subtle" placeholder="Search projects, sites, materials..." type="text"/>
+</div>
+<!-- Right utility actions & User profile -->
+<div class="flex items-center justify-between lg:justify-end gap-3 flex-wrap">
+<!-- Day/Night Toggle Pill -->
+<div class="flex items-center bg-white border border-gray-200/80 rounded-full p-1 shadow-subtle">
+<button class="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center shadow-sm">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="4"></circle>
+<path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" stroke-linecap="round"></path>
+</svg>
+</button>
+<button class="w-8 h-8 rounded-full text-gray-400 hover:text-gray-600 flex items-center justify-center">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+<!-- Settings Icon Button -->
+<button class="w-10 h-10 rounded-full bg-white border border-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 shadow-subtle transition-all">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round"></path>
+<path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<!-- Notification Bell with Red Indicator -->
+<button class="relative w-10 h-10 rounded-full bg-white border border-gray-200/80 flex items-center justify-center text-gray-500 hover:text-gray-800 shadow-subtle transition-all">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span class="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white"></span>
+</button>
+<!-- User Profile Chip -->
+<div class="flex items-center gap-3 pl-2 pr-3 py-1.5 rounded-full bg-white border border-gray-200/80 shadow-subtle cursor-pointer hover:border-gray-300 transition-all">
+<img alt="Rajesh Varma" class="w-8 h-8 rounded-full object-cover ring-2 ring-blue-500/20" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBicM4m1UM465daxv7_SxaPkClhxWxSeqISgi1eyrHKuXNvwhp9_I-8CSRH3O1XQsiEtIm_T0nK_A2ojjOXPmpiXq5Pm98fTYu15-5y7zX1MfV1BnDa8db0sGRBdfWu6lFMjh4_p24bFUJYMZO8hYlFesUNnOz58ODI8wF1z54GDwC1E9YPWxW14w1Dgx4AItUnrCdjmIyFKRYWa-tKYw4XauAPorYmGdI76gntj57PDpyeV4IkYyW-AA"/>
+<div class="hidden sm:block text-left text-xs">
+<p class="font-bold text-gray-900 leading-tight">Rajesh Varma</p>
+<p class="text-[11px] text-gray-400">Operations Director</p>
+</div>
+<svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+</div>
+</header>
+<!-- END: TopBar -->
+<!-- BEGIN: WelcomeRow -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-1" data-purpose="welcome-and-actions">
+<div>
+<span class="text-xs font-semibold text-gray-400 tracking-wide uppercase">Monday, 20 October, 2026</span>
+<div class="flex items-center gap-4 mt-0.5">
+<h1 class="text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight">Welcome back, Rajesh</h1>
+<!-- Small cluster of overlapping avatar photos matching reference -->
+<div class="flex items-center -space-x-2">
+<img alt="Team member" class="w-7 h-7 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOh3YsMa306Pj3B2z-2NJt0USqRT1LVKZi0FWyqM17U5hnpyuy-5iIX6LeEYzCWyKZd8CxlN23HGaESXXBPg6w-4TPf4mwuS4ruqcddu7fk1hoWNQVVfBDE8MMxtWAkSkDqQBFDwmT2Y-Xr6TsaEkj6vJ-I8w-cpIG5_hinfEYOjqyzzNSdND2d4KUdpAJTJSybfkNMaTJ67Rgd046a0DBCuvT7NKoXsy_2KfN7aCtgid4LBRylHHsfA"/>
+<img alt="Team member" class="w-7 h-7 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBB4vKetx6PIVvC4GobLi8uaDlHsF1dGqVjtHWmoDBvykKQpsljLlUBvTc0XCBhBEz3-BGPyU00i8CUIkRQ6vYq7t7Y4jG8Dxrvj2CRqfGPB8rF8cYcP14rHsg1v9XATUFLEYshnyUGu3N2w15RICIR5gf0lc7cka_CEUiDqJ6PghiYFRJgavgmQT1iQHeQ1OljgGBAsmxO5Uq8C-cQ1bFuZlbnitz1E7mWEwpOSAk3l-zk2rWUvbxaWw"/>
+<img alt="Team member" class="w-7 h-7 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDTlfP-4HwomEFGskbLQ2_q58r72mhxKLk36vRX2QRE5-MciYQ4i_Cm0x2ucvCbWs8Poms4_gtRsbnFyi1qWQOIAE8xspukQdA1IHjnR6s53bm4JokT5rdck3Bf5ZYH1utCc1HB6ZmrBg0MNd4tq7u4fdIDDJq-PkKNsWU4woqu_W02P7Sfw3tjXpl8uN7Q_1sKRdGmUfDMJ2KtYYQZ3-e6-nqyTWMFQOdC_Pl0AV_PXmxT43MxHYbpCw"/>
+<div class="w-7 h-7 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[10px] font-bold flex items-center justify-center">
+                +3
+              </div>
+</div>
+</div>
+</div>
+<!-- Top Right Action Buttons (Pill styled like image) -->
+<div class="flex items-center gap-3">
+<button class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs tracking-wide shadow-md shadow-blue-500/30 transition-all" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>New Project</span>
+</button>
+<button class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-semibold text-xs tracking-wide shadow-subtle transition-all" type="button">
+<svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Export Data</span>
+</button>
+</div>
+</div>
+<!-- END: WelcomeRow -->
+<!-- BEGIN: UpperGridSection -->
+<!-- 2x2 KPI Cards on Left + Projects Timeline on Right (Exact layout as Reference) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-5" data-purpose="kpi-and-timeline-grid">
+<!-- Left: 4 KPI Cards in 2x2 layout -->
+<div class="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-4"><!-- KPI 1: Active Projects -->
+<div class="soft-card p-4 flex flex-col justify-between" data-purpose="kpi-card">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<rect height="7" rx="1.5" width="7" x="3" y="3"></rect>
+<rect height="7" rx="1.5" width="7" x="14" y="3"></rect>
+<rect height="7" rx="1.5" width="7" x="14" y="14"></rect>
+<rect height="7" rx="1.5" width="7" x="3" y="14"></rect>
+</svg>
+</div>
+<span class="text-xs font-bold text-gray-800">Active Projects</span>
+</div>
+<button class="text-gray-400 hover:text-gray-600">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<div class="mt-4">
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-extrabold text-gray-900 tracking-tight">12</span>
+<span class="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+        +40%
+      </span>
+</div>
+<p class="text-xs font-medium text-gray-500 mt-1">vs last month</p>
+</div>
+</div>
+<!-- KPI 2: Completed -->
+<div class="soft-card p-4 flex flex-col justify-between" data-purpose="kpi-card">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="9"></circle>
+<path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</div>
+<span class="text-xs font-bold text-gray-800">Completed</span>
+</div>
+<button class="text-gray-400 hover:text-gray-600">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<div class="mt-4">
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-extrabold text-gray-900 tracking-tight">4</span>
+<span class="text-xs font-bold text-rose-500 flex items-center gap-0.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+        -25%
+      </span>
+</div>
+<p class="text-xs font-medium text-gray-500 mt-1">vs last month</p>
+</div>
+</div>
+<!-- KPI 3: Pending Approvals -->
+<div class="soft-card p-4 flex flex-col justify-between" data-purpose="kpi-card">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="9"></circle>
+<polyline points="12 6 12 12 16 14"></polyline>
+</svg>
+</div>
+<span class="text-xs font-bold text-gray-800">Pending Approvals</span>
+</div>
+<button class="text-gray-400 hover:text-gray-600">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<div class="mt-4">
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-extrabold text-gray-900 tracking-tight">8</span>
+<span class="text-xs font-bold text-rose-500 flex items-center gap-0.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+        -12%
+      </span>
+</div>
+<p class="text-xs font-medium text-gray-500 mt-1">vs last month</p>
+</div>
+</div>
+<!-- KPI 4: Receivables -->
+<div class="soft-card p-4 flex flex-col justify-between" data-purpose="kpi-card">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<rect height="14" rx="2" width="20" x="2" y="5"></rect>
+<line x1="2" x2="22" y1="10" y2="10"></line>
+</svg>
+</div>
+<span class="text-xs font-bold text-gray-800">Receivables</span>
+</div>
+<button class="text-gray-400 hover:text-gray-600">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<div class="mt-4">
+<div class="flex items-baseline gap-2">
+<span class="text-3xl font-extrabold text-gray-900 tracking-tight">₹45.2L</span>
+<span class="text-xs font-bold text-emerald-600 flex items-center gap-0.5">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+        +18%
+      </span>
+</div>
+<p class="text-xs font-medium text-gray-500 mt-1">vs last month</p>
+</div>
+</div></div>
+<!-- Right: Projects Timeline (2 horizontal cards) -->
+<div class="lg:col-span-7 soft-card p-5" data-purpose="projects-timeline-card">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-base font-bold text-gray-900">Projects Timeline</h3>
+<button class="text-gray-300 hover:text-gray-600">
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Timeline Sub Card 1 -->
+<div class="border border-gray-100 rounded-2xl p-4 bg-[#fcfdfe] hover:bg-white hover:border-gray-200 transition-all flex flex-col justify-between">
+<div>
+<!-- Tags + 3 Dot -->
+<div class="flex items-center justify-between mb-2.5">
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-badgePeach text-badgePeachText text-[10px] font-semibold">Civil - High Rise</span>
+<span class="px-2 py-0.5 rounded-md bg-badgeBlue text-badgeBlueText text-[10px] font-semibold">Structural</span>
+</div>
+<button class="text-gray-300 hover:text-gray-500">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<h4 class="text-sm font-bold text-gray-900">Riverside Residency</h4>
+<p class="text-[12px] text-gray-500 mt-1 leading-relaxed line-clamp-2">
+                  14th floor slab casting &amp; reinforcement inspection underway with structural consultant.
+                </p>
+</div>
+<div class="mt-4 pt-3 border-t border-gray-100/80">
+<!-- Progress Label & Bar -->
+<div class="flex items-center justify-end text-[11px] font-medium text-gray-600 mb-1.5">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-600 mr-1.5"></span>
+                  72% Completed
+                </div>
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-blue-600 h-2 rounded-full" style="width: 72%"></div>
+</div>
+<!-- Footer: Avatars & Meta Icons -->
+<div class="flex items-center justify-between mt-3.5 pt-1">
+<div class="flex items-center -space-x-1.5">
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFPiXCOvTq-dWgYTrhBcfj76863j7AbZHAE7AOA1HPaqgVAnMJfzF67i4py73pFaucacO53bxWs3QS2SPub_8jCSXdbZgwBSpVrtcunCw5rxdSOXdhxacmq0OrISjpWqXma7RAG6B0nQtpP2JgC_KkVyX5HVEMmDH4owmUGjjvUD2HMUnqekJjvtxKH7GFIPMVklGH9dTPzYTnuY-O0y9lPuSkQUJ26GE5jXht2Bl_-XxBFZmwzhB7wA"/>
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAl1RAu0o5DrW3c75ekla2fseEQllEQBv3AUVF9LxaLtaCAf5h4oKQ2sRQi-ktrtgzY9aW8HhNZJ1l9kDXvutsMzsWdS12uU6t7Gv3oOjHSopvUbwYihUfeKwFlnE9z5tRPp_eeoltGSxeFVrpw2b5vgcKiZfyqLCby11_Cb7uAVTgyQt8s_cuNA5LidGR8_EGjCDvz76DMyERO8Uiaqv3X_I41PeFvpB30L9FLV6OXJC9qGzsYd9J4cw"/>
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDLcLR2EgL6Zp6Cyd_uAd2ODCn7EQm7Oomfjt2P9665LfcuyDt89WsmajnEO1486XqP0xOjhGAzgrJzjfIyfD-8eMv4OeS26Sjj_j45RzJvGVoyLhT5rnxrcpPDgDcOik7BEXQcuzLyPWNhvtNMVSs61TJU5B_AkRZ3uUGm8OONA6L0O4R4bDVaZAAjnZzUnLaH8bzq_76_Mz57voKL3YqX7NjJqii7wpnLtJatEgvGcR7snbd4A3EVZg"/>
+</div>
+<div class="flex items-center gap-3 text-xs text-gray-400">
+<span class="flex items-center gap-1">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+                      5
+                    </span>
+<span class="flex items-center gap-1">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+                      6
+                    </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Timeline Sub Card 2 -->
+<div class="border border-gray-100 rounded-2xl p-4 bg-[#fcfdfe] hover:bg-white hover:border-gray-200 transition-all flex flex-col justify-between">
+<div>
+<!-- Tags + 3 Dot -->
+<div class="flex items-center justify-between mb-2.5">
+<div class="flex items-center gap-1.5">
+<span class="px-2 py-0.5 rounded-md bg-badgePeach text-badgePeachText text-[10px] font-semibold">PEB Industrial</span>
+<span class="px-2 py-0.5 rounded-md bg-badgeBlue text-badgeBlueText text-[10px] font-semibold">Fabrication</span>
+</div>
+<button class="text-gray-300 hover:text-gray-500">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<h4 class="text-sm font-bold text-gray-900">Industrial Park Phase 2</h4>
+<p class="text-[12px] text-gray-500 mt-1 leading-relaxed line-clamp-2">
+                  Structural steel erection &amp; heavy crane mobilization on north bay complete.
+                </p>
+</div>
+<div class="mt-4 pt-3 border-t border-gray-100/80">
+<!-- Progress Label & Bar -->
+<div class="flex items-center justify-end text-[11px] font-medium text-gray-600 mb-1.5">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                  48% Completed
+                </div>
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-emerald-500 h-2 rounded-full" style="width: 48%"></div>
+</div>
+<!-- Footer: Avatars & Meta Icons -->
+<div class="flex items-center justify-between mt-3.5 pt-1">
+<div class="flex items-center -space-x-1.5">
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAUgrOS3dmmsDM3sPqmnfi0I8iOFF9P-7udT8BA9aV0f_NyvSYE_foNOvLnc3H9s1nmrZf01s8YiQTDtDL9kcBq1bWlYrX4fkq7c4H0HhrvQs1rOrm5d7Vd5g0P8ey1HNiKNCWbXKY8aCij1O6QmVdD6mYoGBmu6ouDXIBRGH9BHX1svzvudr2WQJ2VOVhGB886xOZ03qEe_ewueJUCdJ1NGiow_dBUC08ZH7H6Vs-yMH13pGLOmxs_xw"/>
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD8rQVQqdIvHTjERGSDX1C0EtGd5FK4UT7GdIlx9b3f1GFr7W9lgKiqZBUtJmsaPdE6M-pc2YRVOZI3Xg6ryUz5vFlFhherwlbxu9TGW_JSLwSLzWSiZszdjGFvvKqQnzVNctbVP5PXT19KNj-7DbwuOuMj_q0OiCP2BH5oW0fgSeLT88gsFkxWZx0TCi0cMHrAXqJc9gXNhHJObziUX3NA2OZ3OVq5_qQ0JaKoNSBDRYixA-KfFDDEEg"/>
+<img alt="Worker" class="w-6 h-6 rounded-full border-2 border-white object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDDokQYNM7v2YH8h6I7fr5Oj3yu_4UuvayWhdW6iGgUUYM1fLCJaBgQ_e8LY1q7TI_KAsmJzGqdPSp1pr-Ioq5vxXSwPqNnNh_yrWlbuzYtL4eTCqgwzH09SPY-AFWXYLTOZSddu6cFErYVFMQ-GqADpdkMjQSOIeijXNhzx98EF9Y1Rm7cZmLSYuaXFaZxq0WzrAW0wKLuSQZ0ylW9vV2GC4JcXfYvICdxvNWO766o2gYL5_mwJjCckQ"/>
+</div>
+<div class="flex items-center gap-3 text-xs text-gray-400">
+<span class="flex items-center gap-1">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+                      8
+                    </span>
+<span class="flex items-center gap-1">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+                      9
+                    </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- END: UpperGridSection -->
+<!-- BEGIN: MiddleRowSection -->
+<!-- Project Overview Dot-Matrix Lollipop Chart + Site Operations Live Feed -->
+<!-- BEGIN: NeedsAttentionSection -->
+<section class="soft-card p-4" data-purpose="needs-attention-alerts">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+<div class="flex items-center gap-2">
+<span class="flex h-2.5 w-2.5 relative">
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+</span>
+<h3 class="text-xs font-extrabold text-gray-900 uppercase tracking-wider">Needs Attention (4 Critical Items)</h3>
+</div>
+<span class="text-[11px] font-semibold text-gray-500">Updated 12 mins ago</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+<!-- Alert 1 -->
+<div class="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<div class="truncate">
+<p class="text-xs font-bold text-gray-900 truncate">3 Purchase Orders</p>
+<p class="text-[11px] font-medium text-amber-700 truncate">Awaiting approval</p>
+</div>
+</div>
+<button class="px-2.5 py-1 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 text-[11px] font-bold shadow-subtle flex-shrink-0 transition-all" type="button">
+        Review
+      </button>
+</div>
+<!-- Alert 2 -->
+<div class="p-3 rounded-xl bg-rose-50 border border-rose-200/60 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-7 h-7 rounded-lg bg-rose-500 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<div class="truncate">
+<p class="text-xs font-bold text-gray-900 truncate">2 Client Invoices (₹12.4L)</p>
+<p class="text-[11px] font-medium text-rose-700 truncate">Overdue &gt; 15 days</p>
+</div>
+</div>
+<button class="px-2.5 py-1 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 text-[11px] font-bold shadow-subtle flex-shrink-0 transition-all" type="button">
+        Follow up
+      </button>
+</div>
+<!-- Alert 3 -->
+<div class="p-3 rounded-xl bg-amber-50/80 border border-amber-200/60 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<div class="truncate">
+<p class="text-xs font-bold text-gray-900 truncate">Ready Mix Concrete</p>
+<p class="text-[11px] font-medium text-amber-700 truncate">Shortage at 2 sites</p>
+</div>
+</div>
+<button class="px-2.5 py-1 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 text-[11px] font-bold shadow-subtle flex-shrink-0 transition-all" type="button">
+        Dispatch
+      </button>
+</div>
+<!-- Alert 4 -->
+<div class="p-3 rounded-xl bg-rose-50 border border-rose-200/60 flex items-center justify-between gap-2">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="w-7 h-7 rounded-lg bg-rose-500 text-white flex items-center justify-center flex-shrink-0 text-xs font-bold">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</span>
+<div class="truncate">
+<p class="text-xs font-bold text-gray-900 truncate">Biometric Muster (18)</p>
+<p class="text-[11px] font-medium text-rose-700 truncate">Attendance exceptions</p>
+</div>
+</div>
+<button class="px-2.5 py-1 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-gray-800 text-[11px] font-bold shadow-subtle flex-shrink-0 transition-all" type="button">
+        Verify
+      </button>
+</div>
+</div>
+</section>
+<!-- END: NeedsAttentionSection --><div class="grid grid-cols-1 lg:grid-cols-12 gap-5" data-purpose="overview-and-site-ops-row">
+<!-- Left: Project Overview Dot Chart (col-span-8) -->
+<div class="lg:col-span-8 soft-card p-5 relative" data-purpose="project-overview-chart">
+<!-- Card Header & Legend Controls -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+<h3 class="text-base font-bold text-gray-900">Project Overview</h3>
+<div class="flex items-center gap-4 text-xs font-medium">
+<span class="flex items-center gap-1.5 text-gray-600">
+<span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Completed
+              </span>
+<span class="flex items-center gap-1.5 text-gray-400">
+<span class="w-2.5 h-2.5 rounded-full bg-blue-200"></span> In progress
+              </span>
+<!-- Dropdown monthly button -->
+<div class="flex items-center gap-1 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-gray-700 text-xs shadow-sm cursor-pointer hover:border-gray-300">
+<span>Monthly</span>
+<svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Dot Matrix Visualization Container -->
+<div class="relative pt-4 pb-2">
+<!-- Floating Tooltip Exactly as Reference over April (col 4) -->
+<div class="absolute left-[44%] -top-1 transform -translate-x-1/2 z-20 bg-white/95 backdrop-blur-sm border border-gray-200/90 shadow-xl rounded-xl px-3 py-2 text-[11px] font-medium text-gray-700 pointer-events-none">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-600"></span>
+<span>Completed <strong class="text-gray-900">90%</strong></span>
+</div>
+<div class="flex items-center gap-2 mt-0.5">
+<span class="w-2 h-2 rounded-full bg-blue-200"></span>
+<span>In progress <strong class="text-gray-900">10%</strong></span>
+</div>
+</div>
+<!-- Y-axis labels and horizontal grid lines with columns -->
+<div class="relative flex">
+<!-- Y Axis Scale -->
+<div class="flex flex-col justify-between text-[11px] font-medium text-gray-400 h-52 pr-4 text-right select-none w-12">
+<span>100%</span>
+<span>80%</span>
+<span>60%</span>
+<span>40%</span>
+<span>20%</span>
+<span>0%</span>
+</div>
+<!-- Main Graph Grid with 9 Months (Jan to Sep) -->
+<div class="flex-1 grid grid-cols-9 gap-2 sm:gap-4 items-end h-52 border-b border-gray-100 pb-2">
+<!-- Jan (Height 35%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Feb (Height 60%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Mar (Height 40%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Apr (Peak - 95% Completion) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group relative">
+<div class="w-3 h-3 rounded-full bg-blue-200 ring-2 ring-blue-300"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+<div class="w-3.5 h-3.5 rounded-full bg-blue-600"></div>
+</div>
+<!-- May (Height 65%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Jun (Height 50%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Jul (Height 75%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Aug (Height 55%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+<!-- Sep (Height 40%) -->
+<div class="flex flex-col items-center justify-end h-full gap-1.5 group">
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-100"></div>
+<div class="w-3 h-3 rounded-full bg-blue-500"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+<div class="w-3 h-3 rounded-full bg-blue-600"></div>
+</div>
+</div>
+</div>
+<!-- X Axis Month Labels -->
+<div class="grid grid-cols-9 pl-12 pt-2.5 text-center text-xs font-bold text-gray-700">
+<span>Jan</span>
+<span>Feb</span>
+<span>Mar</span>
+<span>Apr</span>
+<span>May</span>
+<span>Jun</span>
+<span>Jul</span>
+<span>Aug</span>
+<span>Sep</span>
+</div>
+</div>
+</div>
+<!-- Right: Site Operations (col-span-4) -->
+<div class="lg:col-span-4 soft-card p-5 flex flex-col justify-between" data-purpose="site-operations-feed">
+<div>
+<div class="flex items-center justify-between mb-3">
+<h3 class="text-base font-bold text-gray-900">Site Operations</h3>
+<button class="text-gray-300 hover:text-gray-600">
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+<!-- Site Search Input -->
+<div class="relative mb-3.5">
+<span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</span>
+<input class="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50/80 border border-gray-200/70 rounded-full focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400" placeholder="Search active sites..." type="text"/>
+</div>
+<!-- Active Site Item 1 -->
+<div class="flex items-center justify-between py-2 border-b border-gray-100">
+<div class="flex items-center gap-3">
+<img alt="Andra Silva" class="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD70Ekvhroq5BauDZn1GIlC1N1dlhXe9mnkt7zGoDdVfZiw3xSKrYJJ6xR1nzLWKeU6hSMbGnPqGjF24lptdd7yyA4BtvBcMG5wdmiy3pW_htSDXYEeI81s83U4Jm1VJwtWsVVRNxmrcz-1ojSxp5YyDXyRCdL6zqJYCu4UFzvy4Xu9QgbLP8PjmAHecG6CdjIDg5YvbyKq2jcC2RFKVmAj7S0d7fCBQl325VjwXF0-M7IJSMeZsLvLZQ"/>
+<div>
+<p class="text-xs font-bold text-gray-900">Main High-Rise Tower</p>
+<p class="text-[11px] text-emerald-600 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 48 workers active
+                  </p>
+</div>
+</div>
+<div class="flex items-center gap-1.5">
+<button class="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- Active Site Item 2 -->
+<div class="flex items-center justify-between py-2 border-b border-gray-100">
+<div class="flex items-center gap-3">
+<img alt="Mark Anderson" class="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuNjOsl6vb4qVvKNmJdOgKMThBS_oGO7XftqifRRbfLlEOwrJU5J_S7CmFQx1sME_xD0TH5l1D32IVBqYxtd2KNxbl6pA3WdzHATmH9SsDT0Hdng0JemhrEeeK281KEktjG5iBUZdoeyLG3y0swIvia2si2RLbQC-ToB5OzjvtcbSjbG-Nu1onPzEJwDo6vCQWVyEQr1UXaGgGm8XIurHIc3I54xqRVabeIr2aTKAJVvmon5f7wqbn3g"/>
+<div>
+<p class="text-xs font-bold text-gray-900">Riverside Site B</p>
+<p class="text-[11px] text-emerald-600 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 36 workers active
+                  </p>
+</div>
+</div>
+<div class="flex items-center gap-1.5">
+<button class="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- Active Site Item 3 -->
+<div class="flex items-center justify-between py-2 border-b border-gray-100">
+<div class="flex items-center gap-3">
+<img alt="Eliana Mark" class="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBohSYzJdwUYX1WvP3g-zUM9KcKAdjNsNmaE-WIoaYyCier_oJ6woobeTYn7b2Hjbs9HVXArhT9Bo-oYyGzCOMaWLXfBwJEZ1jf_JkedoHJk_N2QriUDctTtaaRMKonWEkOo8pANg2bYh7X0qIKVvSbRVi_NTmETowz6CFVmsBVaufaDH3ylUxHhxjKdV8inSw06ZxdO3bmkq9jmpFZY6wKrRe4aeXQbAmb8eo3fHiOPYfgrIlTHbffxQ"/>
+<div>
+<p class="text-xs font-bold text-gray-900">City Expressway Pkg 3</p>
+<p class="text-[11px] text-emerald-600 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 29 workers active
+                  </p>
+</div>
+</div>
+<div class="flex items-center gap-1.5">
+<button class="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+</div>
+<!-- Active Site Item 4 -->
+<div class="flex items-center justify-between py-2">
+<div class="flex items-center gap-3">
+<img alt="Kavita Rao" class="w-9 h-9 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1r11KVJuzH2h4E5sxCgfwn2HtPrnHfv1XeZvdkof1ys1Dul0adV8cZoUaa-XvOIUSmjB8SzktdXuj_rVZC13MMhcuNTTvScPlVYLCG10Kr2wGkcjpdkZhLnrX-O8Mhr5UGJLdG1FkNNHJsM_voKBtUpp5EKkzoLVooI-bUNRjjP5Bt7lUY_xBY7uK7cCkYflUOID54iMTo2TEGo2En4qmoyDR5IH6VHmxIGGmH-pTu-P2FzDHgmaQRQ"/>
+<div>
+<p class="text-xs font-bold text-gray-900">Corporate Fit-out</p>
+<p class="text-[11px] text-emerald-600 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 18 workers active
+                  </p>
+</div>
+</div>
+<div class="flex items-center gap-1.5">
+<button class="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<button class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+</div>
+</div>
+</div>
+<a class="mt-2 text-center text-xs font-semibold text-blue-600 hover:text-blue-700 py-1 block" href="#sites">
+            View all 12 operational sites →
+          </a>
+</div>
+</div>
+<!-- END: MiddleRowSection -->
+<!-- BEGIN: RecentProjectsSection -->
+<!-- Bottom Detailed Table (Matching Reference "Recent Projects") -->
+<section class="soft-card p-5" data-purpose="recent-projects-table-section">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+<h3 class="text-base font-bold text-gray-900">Recent Projects</h3>
+<div class="flex items-center gap-3">
+<!-- Table Search Input -->
+<div class="relative w-full sm:w-64">
+<span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</span>
+<input class="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50/90 border border-gray-200/80 rounded-full focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400" placeholder="Search Anything Here..." type="text"/>
+</div>
+<button class="text-gray-300 hover:text-gray-600">
+<svg class="w-5 h-5" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</div>
+</div>
+<!-- Table Container -->
+<div class="overflow-x-auto">
+<table class="w-full text-left text-xs"><thead>
+<tr class="text-gray-600 font-bold border-b border-gray-200 text-xs uppercase tracking-wider">
+<th class="pb-3.5 font-bold">Assigned To</th>
+<th class="pb-3.5 font-bold">Project Name</th>
+<th class="pb-3.5 font-bold">Start Date</th>
+<th class="pb-3.5 font-bold">Due Date</th>
+<th class="pb-3.5 font-bold">Contract Budget</th>
+<th class="pb-3.5 font-bold">Progress</th>
+<th class="pb-3.5 font-bold">Status</th>
+<th class="pb-3.5 font-bold text-right">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 font-medium text-xs">
+<!-- Row 1 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-3.5">
+<div class="flex items-center gap-2.5">
+<img alt="Amit Sharma" class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFwD6ONc0vIECgiNVaBhXw4u7BQBiqKBUGjKEFxeXqUdCC3vhxkeN9k9hYpJguTbT5Zp9if-yDZcTfWw9xc9kueLjLtY5ucg_-J9rw1qblwK9_81sHn7yCDGsYHgbXQJ9gpAkhjJMuLvFOD3IJ6XqVLY9rOUdMUKdfdjlJo9mc-X_4Qq1n5lc5CT-8NrIUoB5ebob0aoLeqnMO3g3iHO7wGkYOfsyMxYTB5GEOXrk5Ga9efqZAN2MZdA"/>
+<div>
+<p class="font-bold text-gray-900 leading-tight">Amit Sharma</p>
+<p class="text-[11px] text-gray-500 font-medium">Project Lead</p>
+</div>
+</div>
+</td>
+<td class="py-3.5 text-gray-900 font-semibold">Riverside Residency</td>
+<td class="py-3.5 text-gray-600 font-medium">15 Jan, 2026</td>
+<td class="py-3.5 text-gray-600 font-medium">30 Nov, 2026</td>
+<td class="py-3.5 text-gray-900 font-extrabold">₹14.80 Cr</td>
+<td class="py-3.5">
+<div class="flex items-center gap-2 w-28">
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-blue-600 h-2 rounded-full" style="width: 72%"></div>
+</div>
+<span class="text-[11px] font-bold text-gray-800">72%</span>
+</div>
+</td>
+<td class="py-3.5">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> On Track
+      </span>
+</td>
+<td class="py-3.5 text-right">
+<button class="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-3.5">
+<div class="flex items-center gap-2.5">
+<img alt="Vikram Malhotra" class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDB9O6qfkdgA7H2ueYdwFDWfP__hYH3WxQhEIeaE1aPnVoIdn6iRjk5yOXPp5no5XrDL6YZGKNSZA90bEFhKwDbhrBgaNTB_avMLlo_8UUkvgJhzRtwkn8WqdIdTC75Mq6E9JZS8SwqRZr9LKeMWWIlVhxeWUFx1ZOYwUYLQjVw2qZAuxr5a9-b73y047U35FFZflK-w0zpa7X2nLhvZqY2iuZ9f31Gc8jxQCvIHNt8uP_wbrfAlIo45w"/>
+<div>
+<p class="font-bold text-gray-900 leading-tight">Vikram Malhotra</p>
+<p class="text-[11px] text-gray-500 font-medium">Civil Engineer</p>
+</div>
+</div>
+</td>
+<td class="py-3.5 text-gray-900 font-semibold">Industrial Park Phase 2</td>
+<td class="py-3.5 text-gray-600 font-medium">01 Mar, 2026</td>
+<td class="py-3.5 text-gray-600 font-medium">15 Dec, 2026</td>
+<td class="py-3.5 text-gray-900 font-extrabold">₹8.40 Cr</td>
+<td class="py-3.5">
+<div class="flex items-center gap-2 w-28">
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-amber-500 h-2 rounded-full" style="width: 48%"></div>
+</div>
+<span class="text-[11px] font-bold text-gray-800">48%</span>
+</div>
+</td>
+<td class="py-3.5">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> At Risk
+      </span>
+</td>
+<td class="py-3.5 text-right">
+<button class="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-3.5">
+<div class="flex items-center gap-2.5">
+<img alt="Sneha Roy" class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDARuM9ZqBqnNztdpLZFDATSQOFh_fRBI9OjLXJ95QikAbN6zkMmy1s9b4TpAWX7R0Qqu3gx0lrjYuGlz3QiAKmfzmyVZVmQ6KHnNSQ-WPw9bi5ihI0pSCK5-SZ0by3chhWDa4BNW4VfJ7gwxk_FTPdQ4MAw80LvR10tdO43wRL853kgo1kUd7X25xfOGUDGA1G7oElZ7DNPfA19-Z2Eu-IzS-2X9QfYb9_b3h6X8Jl_pFVthH5HHzHlQ"/>
+<div>
+<p class="font-bold text-gray-900 leading-tight">Sneha Roy</p>
+<p class="text-[11px] text-gray-500 font-medium">Site Manager</p>
+</div>
+</div>
+</td>
+<td class="py-3.5 text-gray-900 font-semibold">City Road Maintenance</td>
+<td class="py-3.5 text-gray-600 font-medium">10 May, 2026</td>
+<td class="py-3.5 text-gray-600 font-medium">20 Oct, 2026</td>
+<td class="py-3.5 text-gray-900 font-extrabold">₹3.20 Cr</td>
+<td class="py-3.5">
+<div class="flex items-center gap-2 w-28">
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-emerald-500 h-2 rounded-full" style="width: 85%"></div>
+</div>
+<span class="text-[11px] font-bold text-gray-800">85%</span>
+</div>
+</td>
+<td class="py-3.5">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> On Track
+      </span>
+</td>
+<td class="py-3.5 text-right">
+<button class="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-gray-50/80 transition-colors">
+<td class="py-3.5">
+<div class="flex items-center gap-2.5">
+<img alt="Karan Patel" class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtxio38oSahMiu1Ey9TJW9oM-i7qDBH9Zw3WQxTuJd2ZOQ4IFRP8dnPlu0NSbUV5tMwtoCeovLmSMSGhBHVlaJW-eloRsaIZxjrln4WrHD7xmlv8ZuIWnCAr7flAl6hmQOnJIKJXLuB88-TE3Py2oEulsCnUZdi1CxaXtC2jZrk1o6OmISg9hGmlmdo3hId7kHI2WFIKTjhXYUcQ4oYSRpyFxOesmj78rWu7KLe_UVImjzGObyLvkeMQ"/>
+<div>
+<p class="font-bold text-gray-900 leading-tight">Karan Patel</p>
+<p class="text-[11px] text-gray-500 font-medium">MEP Lead</p>
+</div>
+</div>
+</td>
+<td class="py-3.5 text-gray-900 font-semibold">Corporate Office Fit-out</td>
+<td class="py-3.5 text-gray-600 font-medium">01 Aug, 2026</td>
+<td class="py-3.5 text-gray-600 font-medium">10 Nov, 2026</td>
+<td class="py-3.5 text-gray-900 font-extrabold">₹1.90 Cr</td>
+<td class="py-3.5">
+<div class="flex items-center gap-2 w-28">
+<div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+<div class="bg-rose-500 h-2 rounded-full" style="width: 32%"></div>
+</div>
+<span class="text-[11px] font-bold text-gray-800">32%</span>
+</div>
+</td>
+<td class="py-3.5">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
+<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Delayed
+      </span>
+</td>
+<td class="py-3.5 text-right">
+<button class="text-gray-400 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100">
+<svg class="w-4 h-4" fill="currentColor" viewbox="0 0 24 24">
+<circle cx="12" cy="5" r="1.5"></circle>
+<circle cx="12" cy="12" r="1.5"></circle>
+<circle cx="12" cy="19" r="1.5"></circle>
+</svg>
+</button>
+</td>
+</tr>
+</tbody></table>
+</div>
+</section>
+<!-- END: RecentProjectsSection -->
+</main>
+<!-- END: MainContentArea -->
+</div>
+<!-- END: MainAppCanvas -->
+</body></html>
