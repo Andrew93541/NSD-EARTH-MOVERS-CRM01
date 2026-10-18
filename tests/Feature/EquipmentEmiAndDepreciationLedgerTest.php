@@ -76,21 +76,21 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
             'email' => 'admin@nsd.com',
             'password' => bcrypt('password'),
         ]);
-        $this->admin->companies()->attach($this->company->id, ['role_id' => $adminRole->id, 'is_primary' => true]);
+        $this->admin->companies()->attach($this->company->id, ['role_id' => $adminRole->id, 'status' => 'active', 'is_primary' => true]);
 
         $this->accountant = User::create([
             'name' => 'Chief Accountant',
             'email' => 'accounts@nsd.com',
             'password' => bcrypt('password'),
         ]);
-        $this->accountant->companies()->attach($this->company->id, ['role_id' => $accountantRole->id, 'is_primary' => true]);
+        $this->accountant->companies()->attach($this->company->id, ['role_id' => $accountantRole->id, 'status' => 'active', 'is_primary' => true]);
 
         $this->siteSupervisor = User::create([
             'name' => 'Site Supervisor Dave',
             'email' => 'dave@nsd.com',
             'password' => bcrypt('password'),
         ]);
-        $this->siteSupervisor->companies()->attach($this->company->id, ['role_id' => $supervisorRole->id, 'is_primary' => true]);
+        $this->siteSupervisor->companies()->attach($this->company->id, ['role_id' => $supervisorRole->id, 'status' => 'active', 'is_primary' => true]);
 
         // 2. Project
         $this->project = Project::create([
@@ -235,7 +235,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
     {
         $this->actingAs($this->accountant);
 
-        $response = $this->post(route('loans.emi.pay', [$this->loan, $this->schedule1]), [
+        $response = $this->post(route('loans.emi.pay', $this->schedule1), [
             'payment_ref' => 'NEFT-HDFC-99124',
             'paid_date' => '2026-02-05',
         ]);
@@ -287,7 +287,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $this->actingAs($this->accountant);
 
         // Initial settlement succeeds
-        $this->post(route('loans.emi.pay', [$this->loan, $this->schedule1]), [
+        $this->post(route('loans.emi.pay', $this->schedule1), [
             'payment_ref' => 'NEFT-HDFC-99124',
             'paid_date' => '2026-02-05',
         ]);
@@ -298,7 +298,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $this->assertEquals(1, $initialJournalCount);
 
         // Second retry must be blocked
-        $retryResponse = $this->post(route('loans.emi.pay', [$this->loan, $this->schedule1]), [
+        $retryResponse = $this->post(route('loans.emi.pay', $this->schedule1), [
             'payment_ref' => 'NEFT-HDFC-99124-RETRY',
             'paid_date' => '2026-02-05',
         ]);
@@ -321,7 +321,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $initialOutstanding = (float) $this->loan->outstanding_principal;
         $this->assertEquals(3000000.00, $initialOutstanding);
 
-        $this->post(route('loans.emi.pay', [$this->loan, $this->schedule1]), [
+        $this->post(route('loans.emi.pay', $this->schedule1), [
             'payment_ref' => 'NEFT-HDFC-99124',
             'paid_date' => '2026-02-05',
         ]);
@@ -340,7 +340,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $this->actingAs($this->accountant);
 
         // 1. Settle EMI #1
-        $this->post(route('loans.emi.pay', [$this->loan, $this->schedule1]), [
+        $this->post(route('loans.emi.pay', $this->schedule1), [
             'payment_ref' => 'NEFT-HDFC-99124',
             'paid_date' => '2026-02-05',
         ]);
@@ -349,13 +349,13 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $originalJournalId = $this->schedule1->journal_entry_id;
 
         // 2. Reject reversal if reason is too short (< 5 chars)
-        $shortReasonResponse = $this->post(route('loans.emi.reverse', [$this->loan, $this->schedule1]), [
+        $shortReasonResponse = $this->post(route('loans.emi.reverse', $this->schedule1), [
             'reversal_reason' => 'bad',
         ]);
         $shortReasonResponse->assertSessionHasErrors(['reversal_reason']);
 
         // 3. Perform valid reversal
-        $reverseResponse = $this->post(route('loans.emi.reverse', [$this->loan, $this->schedule1]), [
+        $reverseResponse = $this->post(route('loans.emi.reverse', $this->schedule1), [
             'reversal_reason' => 'Bank direct debit bounce advised by lender',
         ]);
         $reverseResponse->assertRedirect();
@@ -577,7 +577,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         );
 
         // 2. Post via HTTP endpoint
-        $postResponse = $this->post(route('assets.depreciation.post', [$this->asset, $entry]));
+        $postResponse = $this->post(route('assets.depreciation.post', $entry));
         $postResponse->assertRedirect();
         $postResponse->assertSessionHas('success');
 
@@ -634,7 +634,7 @@ class EquipmentEmiAndDepreciationLedgerTest extends TestCase
         $this->assertEquals(4433333.33, (float) $this->asset->current_book_value);
 
         // Reverse with reason
-        $reverseResponse = $this->post(route('assets.depreciation.reverse', [$this->asset, $entry]), [
+        $reverseResponse = $this->post(route('assets.depreciation.reverse', $entry), [
             'reversal_reason' => 'Audit adjustment due to capitalization date shift',
         ]);
         $reverseResponse->assertRedirect();
