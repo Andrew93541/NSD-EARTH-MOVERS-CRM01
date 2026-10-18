@@ -150,6 +150,7 @@ class DocumentAuthorizationDenyByDefaultTest extends TestCase
 
     public function test_all_18_model_map_types_are_explicitly_supported_and_authorized(): void
     {
+        $this->assertCount(18, DocumentController::MODEL_MAP);
         $allModelClasses = array_values(DocumentController::MODEL_MAP);
 
         // Verify that every single class in MODEL_MAP is recognized by policy
@@ -164,8 +165,9 @@ class DocumentAuthorizationDenyByDefaultTest extends TestCase
             );
         }
 
-        // Verify getAccessibleParentTypes returns all 18 for Admin
+        // Verify getAccessibleParentTypes returns exactly 18 for Admin
         $accessible = $this->policy->getAccessibleParentTypes($this->adminUser);
+        $this->assertCount(18, $accessible);
         foreach ($allModelClasses as $modelClass) {
             $this->assertContains($modelClass, $accessible, "Accessible parent types must include {$modelClass}");
         }

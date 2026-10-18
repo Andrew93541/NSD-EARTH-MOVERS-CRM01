@@ -548,7 +548,7 @@ This document outlines the phased implementation plan, tech stack alignment, arc
   - Added `tests/Feature/PasswordResetSecurityTest.php` (8 tests, 32 assertions) verifying valid, invalid, expired, reused, and wrong-email tokens.
 - [x] Priority 2 — Deny-by-Default Document Authorization:
   - Denied access to orphaned documents (`documentable === null`) by default across `view`, `download`, `replace`, and `delete`.
-  - Removed permissive fallbacks; implemented explicit authorization rules for all 18 `MODEL_MAP` types (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `PayrollRecord`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`).
+  - Removed permissive fallbacks; implemented explicit authorization rules for all 18 `MODEL_MAP` types (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`).
   - Scoped Document Centre queries (`scopeVisibleTo()`) to exclude documents whose parent models the user cannot access, preventing metadata, filename, or KPI count leakage.
   - Maintained immutability locks on posted journals, certified subcontractor bills, and settled loans.
   - Added `tests/Feature/DocumentAuthorizationDenyByDefaultTest.php` (7 tests, 82 assertions) verifying cross-tenant isolation, role checks, and deny-by-default behavior.

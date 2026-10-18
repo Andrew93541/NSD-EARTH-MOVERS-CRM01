@@ -263,7 +263,7 @@ BuildFlow treats all client-uploaded files, filenames, and headers as untrusted 
 
 ### 2. Document Authorization Deny-by-Default Architecture
 - **Orphaned Document Access Denial**: Documents with null or deleted parent records (`documentable === null`) are denied by default across `view`, `download`, `replace`, and `delete`.
-- **Explicit Parent Record Authorization**: Removed permissive fallbacks for unknown parent models. All 18 business record models in `DocumentController::MODEL_MAP` (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `PayrollRecord`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`) have explicit authorization rules.
+- **Explicit Parent Record Authorization**: Removed permissive fallbacks for unknown parent models. All 18 business record models in `DocumentController::MODEL_MAP` (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`) have explicit authorization rules.
 - **Zero Metadata Leakage**: `Document::scopeVisibleTo()` filters by `whereIn('documentable_type', $accessibleParentTypes)`. Unauthorized users cannot observe file metadata, KPI counts, search results, or filenames in the Document Centre.
 - **Financial Record Immutability**: Documents attached to posted journals, certified subcontractor bills, or settled loans cannot be deleted or replaced.
 

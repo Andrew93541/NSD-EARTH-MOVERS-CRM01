@@ -13,7 +13,6 @@ use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\MeasurementBookEntry;
 use App\Models\PayrollPeriod;
-use App\Models\PayrollRecord;
 use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
@@ -168,7 +167,7 @@ class DocumentPolicy
             return in_array($roleSlug, ['owner', 'admin', 'hr_officer'], true) || $user->hasPermission('employees.*') || $user->hasPermission('employees.view');
         }
 
-        if ($parent instanceof PayrollPeriod || $parent instanceof PayrollRecord) {
+        if ($parent instanceof PayrollPeriod) {
             return in_array($roleSlug, ['owner', 'admin', 'hr_officer', 'accountant'], true) || $user->hasPermission('payroll.*') || $user->hasPermission('payroll.view');
         }
 
@@ -197,27 +196,7 @@ class DocumentPolicy
      */
     public function getAccessibleParentTypes(User $user): array
     {
-        $allModels = [
-            Project::class,
-            Site::class,
-            DailySiteLog::class,
-            PurchaseRequest::class,
-            PurchaseOrder::class,
-            GoodsReceipt::class,
-            Employee::class,
-            PayrollPeriod::class,
-            PayrollRecord::class,
-            ClientInvoice::class,
-            ClientContract::class,
-            RetentionReleaseClaim::class,
-            Supplier::class,
-            SubcontractorWorkOrder::class,
-            MeasurementBookEntry::class,
-            SubcontractorBill::class,
-            FixedAsset::class,
-            Loan::class,
-            JournalEntry::class,
-        ];
+        $allModels = array_values(\App\Http\Controllers\DocumentController::MODEL_MAP);
 
         $roleSlug = $user->currentRole()?->slug;
         if (in_array($roleSlug, ['owner', 'admin'], true) || $user->hasPermission('*')) {
