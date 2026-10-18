@@ -96,10 +96,30 @@ As mandated by Section 8 of the project rules:
 
 ---
 
-## 6. Next Implementation Target: Phase 4 Advanced Procurement & GRN
+### Phase 4 — Suppliers, Purchasing, Goods Receipts & Inventory (Completed & Verified)
+1. **Goods Receipt Note (GRN) & Quality Inspection Workflow**:
+   - Implemented `ProcurementController::createGRN` and `ProcurementController::storeGRN` connected to `GoodsReceipt` and `GoodsReceiptItem`.
+   - Gate entry metadata capturing delivery challan number, vehicle/truck registration, and inspection notes.
+   - Itemized quality inspection supporting received, accepted, and rejected quantities, with mandatory rejection reason tracking.
+   - Enforces mathematical integrity: `accepted + rejected == received`, with checks preventing over-receipt beyond PO balances.
+2. **Double-Entry Stock Ledger Credit (`StockLedgerEntry`)**:
+   - Inward transaction automatically generated (`transaction_type: 'goods_receipt'`, `direction: 'in'`) directly crediting the designated site store or central yard.
+   - Strictly isolates rejected materials so they do not artificially inflate warehouse valuation or stock balances.
+3. **Purchase Order State Machine & 3-Way Match**:
+   - PO line item `quantity_received` incremented atomically.
+   - Status updates automatically to `partially_received` or `completed`.
+   - Integrated commercial supplier invoice recording (`ProcurementController::storeSupplierInvoice`) establishing 3-way matching between PO, Goods Receipt, and vendor billing.
+4. **Automated Test Suite**:
+   - Created `tests/Feature/ProcurementAndGoodsReceiptTest.php` with 6 feature tests covering PO creation, GRN form view, quality inspection stock crediting, rejection handling, over-receipt rejection, and supplier invoice linking.
+   - Full test suite: **39 tests, 232 assertions, 0 errors**.
 
-The next item on the six-phase roadmap is expanding Phase 4:
-- Dedicated Purchase Request (PR) workflow with multi-level approval before PO issuance.
-- Goods Receipt Note (GRN) quality inspection workflows with accepted vs rejected stock quantities, batch numbers, and delivery challan attachments.
-- Site-to-site stock return workflows with automated ledger entries.
+---
+
+## 6. Next Implementation Target: Advanced Workflows & Client Milestone Retentions
+
+The next prioritized items on the operational roadmap:
+1. **Purchase Request (PR) Pre-Approval**: Field site engineer request form with budget approval before converting to a supplier PO.
+2. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.
+3. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
+
 
