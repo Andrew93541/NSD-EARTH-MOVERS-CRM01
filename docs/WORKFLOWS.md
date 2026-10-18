@@ -24,21 +24,25 @@ stateDiagram-v2
    - Site Supervisor generates a human-readable request reference (`PR-YYYY-XXXXX`).
    - Validates that site belongs to the selected project and user is authorized to manage the site.
    - Itemized lines contain material, positive requested quantity, unit of measurement, specifications, and estimated rate.
-   - Shows live contextual yard stock for the selected delivery destination without modifying inventory balances.
-2. **Submission & Notifications**:
+   - **Non-Destructive Stock Availability**: Computes ledger-backed available stock at the intended destination warehouse without creating holds, reservations, or deductions. Recommends internal stock transfers from central yards when destination has a shortfall.
+2. **Submission, Budget Validation & Multi-Tier Routing**:
    - Requisition status transitions `Draft -> Pending Approval` with recorded `submitted_at` timestamp.
-   - Automatically notifies the assigned Project Manager via `AppNotification`.
-   - Immutability: Once submitted, indents cannot be directly edited without PM review or formal withdrawal.
-3. **Project Manager Review & Segregation of Duties**:
-   - Authorized PM or company admin reviews line items, need date, and justification.
-   - **Segregation of Duties**: A user cannot approve their own purchase request unless holding company owner/admin privileges.
-   - **Rejection**: Requires a mandatory, recorded reason (min 5 characters) for audit trail compliance. Notifies requester and unlocks request for revision and resubmission.
-   - **Approval**: Sets status to `approved`, stamps `approved_by` and `approved_at`, and notifies the requester.
-4. **Procurement Conversion to Purchase Order**:
-   - Visible and actionable only by authorized procurement users.
+   - **Project Budget Controls**: Evaluates approved expenditure budget against actual posted costs (expenses + supplier bills) and existing commitments (unbilled POs + unconverted PRs) without double counting. If request exceeds budget, flags `is_over_budget = true` with calculated overrun amount.
+   - Incomplete pricing is honestly flagged (`is_pricing_complete = false`) rather than assuming zero cost.
+   - **Dynamic Approval Policy Evaluation**: Determines required approval levels based on company-configured tiers (e.g. Tier 1: PM, Tier 2: Finance Review, Tier 3: Owner sign-off). Over-budget or critical requests automatically require Company Owner authorization.
+3. **Multi-Level Approval Decisions & Segregation of Duties**:
+   - Authorized approver for the active tier (`current_approval_level`) reviews the request.
+   - **Segregation of Duties**: Requesters are strictly barred from approving their own purchase requests.
+   - **Server-Side Enforcement**: Approval actions verify role authority against the configured policy on the server; hiding buttons is insufficient.
+   - **Over-Budget Exceptions**: Over-budget requests require a recorded override reason (min 5 characters) and must be authorized by a Company Owner or Administrator.
+   - **Sequential Progression**: Once Tier 1 is approved, `current_approval_level` advances to Tier 2 until all configured levels are satisfied, updating status to `approved`.
+   - **Decision Logging**: Every decision is permanently audited in `purchase_request_approvals` with approver, timestamp, action, role, policy tier, comments, and budget state.
+   - **Rejection**: Requires a mandatory, recorded reason for audit trail compliance. Notifies requester and unlocks request for revision and resubmission.
+4. **Procurement Conversion Safeguards**:
+   - Actionable only when all required approval levels have been completed and any budget override verified.
    - Enables selecting an approved supplier, partial or full quantities, unit prices, and GST rates (CGST/SGST/IGST).
+   - **Pre-Conversion Safeguards**: Rechecks remaining quantities, refreshes stock ledger balances, recalculates project budget impact, and acquires database row locks (`lockForUpdate()`) to prevent race conditions or duplicate conversion.
    - Atomic Database Transaction: Generates `PurchaseOrder` and `PurchaseOrderItem` with foreign key links back to `purchase_requests` and `purchase_request_items`.
-   - Concurrency & Quantity Protection: Line-by-line verification ensures `quantity_to_order <= remaining_quantity`. Increments `quantity_ordered` on the PR item.
    - Status updates atomically: transitions to `partially_converted` if requested items remain, or `po_created` once all items are ordered.
 5. **Downstream Integration (GRN & 3-Way Match)**:
    - Converted PO feeds directly into Goods Receipt (GRN) inspection where accepted quantities credit the stock ledger.

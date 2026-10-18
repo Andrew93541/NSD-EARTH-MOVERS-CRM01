@@ -150,7 +150,17 @@
                                 {{ $req->items->count() }} item(s)
                             </td>
                             <td class="py-3 px-3 text-right font-mono font-bold text-gray-900">
-                                ₹{{ number_format($req->totalEstimatedCost(), 2) }}
+                                <div>₹{{ number_format($req->estimated_total > 0 ? $req->estimated_total : $req->totalEstimatedCost(), 2) }}</div>
+                                @if ($req->is_over_budget)
+                                    <span class="inline-flex items-center gap-0.5 text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.2 rounded border border-red-200 uppercase">
+                                        Over Budget
+                                    </span>
+                                @endif
+                                @if (! $req->is_pricing_complete)
+                                    <span class="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 uppercase">
+                                        Unpriced
+                                    </span>
+                                @endif
                             </td>
                             <td class="py-3 px-3 text-center">
                                 @if ($req->priority === 'critical')
@@ -178,18 +188,19 @@
                                         'rejected' => 'bg-red-50 text-red-700 border border-red-200',
                                         'cancelled' => 'bg-gray-100 text-gray-400',
                                     ];
-                                    $statusLabels = [
-                                        'draft' => 'Draft',
-                                        'pending' => 'Pending PM',
-                                        'approved' => 'Approved',
-                                        'partially_converted' => 'Partial PO',
-                                        'po_created' => 'PO Issued',
-                                        'rejected' => 'Rejected',
-                                        'cancelled' => 'Cancelled',
-                                    ];
                                 @endphp
                                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase {{ $statusClasses[$req->status] ?? 'bg-gray-100 text-gray-600' }}">
-                                    {{ $statusLabels[$req->status] ?? $req->status }}
+                                    @if ($req->status === 'pending')
+                                        Pending L{{ $req->current_approval_level }}/{{ $req->required_approval_levels }}
+                                    @elseif ($req->status === 'approved')
+                                        Approved
+                                    @elseif ($req->status === 'partially_converted')
+                                        Partial PO
+                                    @elseif ($req->status === 'po_created')
+                                        PO Issued
+                                    @else
+                                        {{ ucfirst($req->status) }}
+                                    @endif
                                 </span>
                             </td>
                             <td class="py-3 px-3 text-right">

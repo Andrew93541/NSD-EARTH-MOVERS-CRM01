@@ -9,11 +9,15 @@ use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Models\PurchaseRequest;
+use App\Models\PurchaseRequestApproval;
 use App\Models\PurchaseRequestItem;
 use App\Models\Site;
 use App\Models\StockLedgerEntry;
 use App\Models\Supplier;
 use App\Models\Warehouse;
+use App\Services\ApprovalPolicyService;
+use App\Services\ProjectBudgetService;
+use App\Services\StockAvailabilityService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -133,6 +137,7 @@ class PurchaseRequestController extends Controller
                 'priority' => $validated['priority'],
                 'reason' => $validated['reason'],
                 'requested_by' => $user->id,
+                'current_approval_level' => 1,
             ]);
 
             foreach ($validated['items'] as $itemData) {
@@ -146,6 +151,19 @@ class PurchaseRequestController extends Controller
                 ]);
             }
 
+            // Recalculate estimated total, budget impact, and required approval tiers
+            $pr->recalculateEstimatedTotalAndBudgetImpact();
+
+            // Enforce unknown pricing policy if submitted
+            if ($isSubmitted && ! $pr->is_pricing_complete) {
+                $policy = ApprovalPolicyService::getCurrentLevelPolicy($pr);
+                if ($policy && $policy->unknown_price_rule === 'require_pricing') {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'items' => 'Company procurement policy requires all line items to have valid estimated rates before submission.',
+                    ]);
+                }
+            }
+
             // Notification & Audit
             AuditLog::create([
                 'company_id' => $pr->company_id,
@@ -157,30 +175,35 @@ class PurchaseRequestController extends Controller
                     'pr_number' => $pr->pr_number,
                     'status' => $pr->status,
                     'items_count' => count($validated['items']),
+                    'estimated_total' => $pr->estimated_total,
+                    'is_over_budget' => $pr->is_over_budget,
+                    'required_approval_levels' => $pr->required_approval_levels,
                 ],
                 'ip_address' => request()->ip(),
                 'user_agent' => request()->userAgent(),
             ]);
 
             if ($isSubmitted) {
-                // Notify Project Manager
+                // Notify Project Manager or initial approver
                 $projectManagerId = $pr->project->manager_id;
-                AppNotification::create([
-                    'company_id' => $pr->company_id,
-                    'user_id' => $projectManagerId,
-                    'title' => 'New Material Purchase Request',
-                    'message' => "Request {$pr->pr_number} submitted for site {$pr->site->name} ({$pr->priority} priority).",
-                    'type' => ($pr->priority === 'critical' ? 'danger' : 'info'),
-                    'action_url' => route('purchase-requests.show', $pr),
-                    'is_read' => false,
-                ]);
+                if ($projectManagerId) {
+                    AppNotification::create([
+                        'company_id' => $pr->company_id,
+                        'user_id' => $projectManagerId,
+                        'title' => 'New Material Purchase Request',
+                        'message' => "Request {$pr->pr_number} submitted for site {$pr->site->name} ({$pr->priority} priority). Total: ₹" . number_format($pr->estimated_total, 2),
+                        'type' => ($pr->priority === 'critical' || $pr->is_over_budget ? 'danger' : 'info'),
+                        'action_url' => route('purchase-requests.show', $pr),
+                        'is_read' => false,
+                    ]);
+                }
             }
 
             return $pr;
         });
 
         $msg = ($validated['action'] === 'submit')
-            ? "Material Request {$purchaseRequest->pr_number} submitted for Project Manager approval."
+            ? "Material Request {$purchaseRequest->pr_number} submitted for Level 1 authorization."
             : "Material Request {$purchaseRequest->pr_number} saved as draft.";
 
         return redirect()->route('purchase-requests.show', $purchaseRequest)->with('success', $msg);
@@ -197,25 +220,33 @@ class PurchaseRequestController extends Controller
             'items.material.category',
             'purchaseOrders.supplier',
             'purchaseOrders.creator',
+            'approvals.approver',
+            'approvals.policy',
         ]);
 
-        // Calculate available stock context for each material in site warehouse or central yard
-        $stockContext = [];
-        $targetWarehouseId = $request->warehouse_id;
+        // Real-time stock availability check using StockLedgerEntry
+        $stockAnalysis = StockAvailabilityService::analyzeRequest($request);
 
-        foreach ($request->items as $item) {
-            $query = StockLedgerEntry::where('material_id', $item->material_id);
-            if ($targetWarehouseId) {
-                $query->where('warehouse_id', $targetWarehouseId);
-            }
+        // Real-time project budget evaluation
+        $budgetAnalysis = ProjectBudgetService::evaluateProjectBudget(
+            $request->project,
+            (float) $request->estimated_total,
+            $request->id
+        );
 
-            $in = (clone $query)->where('direction', 'in')->sum('quantity');
-            $out = (clone $query)->where('direction', 'out')->sum('quantity');
+        // Approval tier and permission checks
+        $tierEvaluation = ApprovalPolicyService::evaluateRequiredTiers($request);
+        $canApproveCheck = ApprovalPolicyService::canUserApprove(Auth::user(), $request);
+        $currentLevelPolicy = ApprovalPolicyService::getCurrentLevelPolicy($request);
 
-            $stockContext[$item->material_id] = max(0.0, (float) ($in - $out));
-        }
-
-        return view('purchase-requests.show', compact('request', 'stockContext'));
+        return view('purchase-requests.show', compact(
+            'request',
+            'stockAnalysis',
+            'budgetAnalysis',
+            'tierEvaluation',
+            'canApproveCheck',
+            'currentLevelPolicy'
+        ));
     }
 
     public function edit(PurchaseRequest $request): View|RedirectResponse
@@ -322,13 +353,31 @@ class PurchaseRequestController extends Controller
                 ]);
             }
 
+            // Recalculate estimated total, budget impact, and required approval tiers
+            $request->recalculateEstimatedTotalAndBudgetImpact();
+
+            // Enforce unknown pricing policy if submitted
+            if ($isSubmitted && ! $request->is_pricing_complete) {
+                $policy = ApprovalPolicyService::getCurrentLevelPolicy($request);
+                if ($policy && $policy->unknown_price_rule === 'require_pricing') {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'items' => 'Company procurement policy requires all line items to have valid estimated rates before submission.',
+                    ]);
+                }
+            }
+
             AuditLog::create([
                 'company_id' => $request->company_id,
                 'user_id' => $user->id,
                 'action' => $isSubmitted ? 'purchase_request_resubmitted' : 'purchase_request_updated',
                 'auditable_type' => PurchaseRequest::class,
                 'auditable_id' => $request->id,
-                'new_values' => ['status' => $request->status],
+                'new_values' => [
+                    'status' => $request->status,
+                    'estimated_total' => $request->estimated_total,
+                    'is_over_budget' => $request->is_over_budget,
+                    'required_approval_levels' => $request->required_approval_levels,
+                ],
                 'ip_address' => request()->ip(),
                 'user_agent' => request()->userAgent(),
             ]);
@@ -338,7 +387,7 @@ class PurchaseRequestController extends Controller
                     'company_id' => $request->company_id,
                     'user_id' => $request->project->manager_id,
                     'title' => 'Purchase Request Resubmitted',
-                    'message' => "Request {$request->pr_number} has been resubmitted for approval.",
+                    'message' => "Request {$request->pr_number} has been resubmitted for Level 1 authorization.",
                     'type' => 'info',
                     'action_url' => route('purchase-requests.show', $request),
                     'is_read' => false,
@@ -347,7 +396,7 @@ class PurchaseRequestController extends Controller
         });
 
         $msg = ($validated['action'] === 'submit')
-            ? "Material Request {$request->pr_number} resubmitted for approval."
+            ? "Material Request {$request->pr_number} resubmitted for Level 1 authorization."
             : "Material Request {$request->pr_number} updated successfully.";
 
         return redirect()->route('purchase-requests.show', $request)->with('success', $msg);
@@ -359,7 +408,7 @@ class PurchaseRequestController extends Controller
         $roleSlug = $user->currentRole()?->slug;
         $isAdminOrOwner = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin']);
 
-        if ($request->requested_by !== $user->id && !$isAdminOrOwner) {
+        if ($request->requested_by !== $user->id && ! $isAdminOrOwner) {
             abort(403, 'You are not authorized to submit this purchase request.');
         }
 
@@ -367,8 +416,20 @@ class PurchaseRequestController extends Controller
             return back()->withErrors(['status' => 'Only draft requests can be submitted.']);
         }
 
+        $request->recalculateEstimatedTotalAndBudgetImpact();
+
+        if (! $request->is_pricing_complete) {
+            $policy = ApprovalPolicyService::getCurrentLevelPolicy($request);
+            if ($policy && $policy->unknown_price_rule === 'require_pricing') {
+                return back()->withErrors([
+                    'pricing' => 'Company procurement policy requires all line items to have valid estimated rates before submission.',
+                ]);
+            }
+        }
+
         $request->update([
             'status' => 'pending',
+            'current_approval_level' => 1,
             'submitted_at' => Carbon::now(),
         ]);
 
@@ -378,24 +439,27 @@ class PurchaseRequestController extends Controller
             'action' => 'purchase_request_submitted',
             'auditable_type' => PurchaseRequest::class,
             'auditable_id' => $request->id,
-            'new_values' => ['status' => 'pending'],
+            'new_values' => ['status' => 'pending', 'current_approval_level' => 1],
             'ip_address' => request()->ip(),
             'user_agent' => request()->userAgent(),
         ]);
 
         // Notify Project Manager
-        AppNotification::create([
-            'company_id' => $request->company_id,
-            'user_id' => $request->project->manager_id,
-            'title' => 'Purchase Request Submitted',
-            'message' => "Request {$request->pr_number} is pending your approval.",
-            'type' => 'info',
-            'action_url' => route('purchase-requests.show', $request),
-            'is_read' => false,
-        ]);
+        $managerId = $request->project->manager_id;
+        if ($managerId) {
+            AppNotification::create([
+                'company_id' => $request->company_id,
+                'user_id' => $managerId,
+                'title' => 'Purchase Request Submitted',
+                'message' => "Request {$request->pr_number} is pending your Level 1 authorization.",
+                'type' => 'info',
+                'action_url' => route('purchase-requests.show', $request),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('purchase-requests.show', $request)
-            ->with('success', "Request {$request->pr_number} submitted to Project Manager for approval.");
+            ->with('success', "Request {$request->pr_number} submitted for Level 1 authorization.");
     }
 
     public function approve(Request $httpRequest, PurchaseRequest $request): RedirectResponse
@@ -405,53 +469,63 @@ class PurchaseRequestController extends Controller
         }
 
         $user = Auth::user();
-        $roleSlug = $user->currentRole()?->slug;
-        $isAuthorizedApprover = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin'])
-            || ($roleSlug === 'project_manager' && ($request->project->manager_id === null || $request->project->manager_id === $user->id))
-            || ($request->project->manager_id === $user->id);
-
-        if (!$isAuthorizedApprover) {
-            abort(403, 'You do not have authorization to approve this purchase request.');
+        $check = ApprovalPolicyService::canUserApprove($user, $request);
+        if (! $check['can_approve']) {
+            if (! empty($check['is_unauthorized_role'])) {
+                abort(403, $check['reason']);
+            }
+            return back()->withErrors(['status' => $check['reason'], 'approval' => $check['reason']]);
         }
 
-        // Segregation of duties: prevent self-approval unless company owner/admin
-        $isOwnerOrAdmin = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin']);
-        if ($request->requested_by === $user->id && !$isOwnerOrAdmin) {
-            return back()->withErrors([
-                'status' => 'Segregation of duties: You cannot approve your own purchase request.',
-            ]);
-        }
-
-        $request->update([
-            'status' => 'approved',
-            'approved_by' => $user->id,
-            'approved_at' => Carbon::now(),
+        $validated = $httpRequest->validate([
+            'comments' => 'nullable|string|max:500',
+            'is_budget_override' => 'nullable|boolean',
+            'override_reason' => 'nullable|string|max:500',
         ]);
+
+        $res = ApprovalPolicyService::recordApproval(
+            $request,
+            $user,
+            $validated['comments'] ?? null,
+            $httpRequest->boolean('is_budget_override'),
+            $validated['override_reason'] ?? null
+        );
+
+        if (! $res['success']) {
+            return back()->withErrors(['status' => $res['error'], 'approval' => $res['error']]);
+        }
 
         AuditLog::create([
             'company_id' => $request->company_id,
             'user_id' => $user->id,
-            'action' => 'purchase_request_approved',
+            'action' => $res['is_final'] ? 'purchase_request_approved_final' : 'purchase_request_approved_tier',
             'auditable_type' => PurchaseRequest::class,
             'auditable_id' => $request->id,
-            'new_values' => ['status' => 'approved', 'approved_by' => $user->id],
+            'new_values' => [
+                'current_level' => $request->current_approval_level,
+                'status' => $request->status,
+                'is_final' => $res['is_final'],
+                'comments' => $validated['comments'] ?? null,
+                'override_reason' => $validated['override_reason'] ?? null,
+            ],
             'ip_address' => request()->ip(),
             'user_agent' => request()->userAgent(),
         ]);
 
-        // Notify Requester
-        AppNotification::create([
-            'company_id' => $request->company_id,
-            'user_id' => $request->requested_by,
-            'title' => 'Material Request Approved',
-            'message' => "Your request {$request->pr_number} was approved and queued for procurement PO creation.",
-            'type' => 'success',
-            'action_url' => route('purchase-requests.show', $request),
-            'is_read' => false,
-        ]);
+        if ($res['is_final']) {
+            AppNotification::create([
+                'company_id' => $request->company_id,
+                'user_id' => $request->requested_by,
+                'title' => 'Material Request Fully Approved',
+                'message' => "Your request {$request->pr_number} was fully approved and queued for procurement PO creation.",
+                'type' => 'success',
+                'action_url' => route('purchase-requests.show', $request),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('purchase-requests.show', $request)
-            ->with('success', "Purchase Request {$request->pr_number} approved successfully.");
+            ->with('success', $res['message']);
     }
 
     public function reject(Request $httpRequest, PurchaseRequest $request): RedirectResponse
@@ -461,17 +535,27 @@ class PurchaseRequestController extends Controller
         }
 
         $user = Auth::user();
-        $roleSlug = $user->currentRole()?->slug;
-        $isAuthorizedApprover = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin'])
-            || ($roleSlug === 'project_manager' && ($request->project->manager_id === null || $request->project->manager_id === $user->id))
-            || ($request->project->manager_id === $user->id);
-
-        if (!$isAuthorizedApprover) {
-            abort(403, 'You do not have authorization to reject this purchase request.');
+        $check = ApprovalPolicyService::canUserApprove($user, $request);
+        if (! $check['can_approve']) {
+            abort(403, $check['reason'] ?? 'You do not have authorization to reject this purchase request at this level.');
         }
 
         $validated = $httpRequest->validate([
             'rejection_reason' => 'required|string|min:5|max:500',
+        ]);
+
+        // Record rejection in approval log
+        PurchaseRequestApproval::create([
+            'company_id' => $request->company_id,
+            'purchase_request_id' => $request->id,
+            'policy_id' => ApprovalPolicyService::getCurrentLevelPolicy($request)?->id,
+            'approval_level' => $request->current_approval_level,
+            'approver_id' => $user->id,
+            'action' => 'rejected',
+            'comments' => $validated['rejection_reason'],
+            'is_budget_override' => false,
+            'snapshot_estimated_total' => $request->estimated_total,
+            'snapshot_remaining_budget' => ProjectBudgetService::evaluateProjectBudget($request->project, 0, $request->id)['remaining_before'],
         ]);
 
         $request->update([
@@ -545,6 +629,18 @@ class PurchaseRequestController extends Controller
                 ->withErrors(['status' => 'Only approved purchase requests can be converted into purchase orders.']);
         }
 
+        // Safeguard: Check that all required approval tiers have been completed
+        if ($request->current_approval_level < $request->required_approval_levels && $request->status !== 'approved' && $request->status !== 'partially_converted') {
+            return redirect()->route('purchase-requests.show', $request)
+                ->withErrors(['status' => "Conversion blocked: Requisition requires Level {$request->required_approval_levels} authorization (currently at Level {$request->current_approval_level})."]);
+        }
+
+        // Safeguard: Over-budget requests require an approved budget override
+        if ($request->is_over_budget && ! $request->budget_override_approved) {
+            return redirect()->route('purchase-requests.show', $request)
+                ->withErrors(['budget' => 'Conversion blocked: This requisition exceeds project budget and lacks an approved budget override.']);
+        }
+
         if ($request->remainingItemsCount() === 0) {
             return redirect()->route('purchase-requests.show', $request)
                 ->withErrors(['status' => 'All items in this request have already been fully converted into purchase orders.']);
@@ -553,6 +649,10 @@ class PurchaseRequestController extends Controller
         $request->load(['items.material', 'project', 'site', 'warehouse']);
         $suppliers = Supplier::where('status', 'active')->orderBy('name')->get();
         $warehouses = Warehouse::where('is_active', true)->orderBy('name')->get();
+
+        // Refresh stock availability and project budget
+        $stockAnalysis = StockAvailabilityService::analyzeRequest($request);
+        $budgetAnalysis = ProjectBudgetService::evaluateProjectBudget($request->project, 0, $request->id);
 
         $convertibleItems = $request->items
             ->filter(fn($it) => $it->remainingQuantity() > 0.001)
@@ -570,7 +670,7 @@ class PurchaseRequestController extends Controller
                 'tax_percent' => 18.00,
             ])->values()->all();
 
-        return view('purchase-requests.convert', compact('request', 'suppliers', 'warehouses', 'convertibleItems'));
+        return view('purchase-requests.convert', compact('request', 'suppliers', 'warehouses', 'convertibleItems', 'stockAnalysis', 'budgetAnalysis'));
     }
 
     public function storePOConversion(Request $httpRequest, PurchaseRequest $request): RedirectResponse
@@ -601,129 +701,165 @@ class PurchaseRequestController extends Controller
             'items.*.tax_percent' => 'nullable|numeric|between:0,100',
         ]);
 
-        $request->load('items');
-
-        // Verify quantities and find at least one ordered item
-        $totalQuantityToOrder = 0;
+        $request->load('items.material');
+        $preTotalQty = 0;
         foreach ($validated['items'] as $itemData) {
             $prItem = $request->items->firstWhere('id', $itemData['pr_item_id']);
             if (!$prItem) {
                 return back()->withInput()->withErrors(['items' => 'Invalid PR line item.']);
             }
-
-            $qtyToOrder = (float) $itemData['quantity_to_order'];
-            $remaining = $prItem->remainingQuantity();
-
-            if ($qtyToOrder > $remaining + 0.0001) {
+            $qty = (float) $itemData['quantity_to_order'];
+            $rem = $prItem->remainingQuantity();
+            if ($qty > $rem + 0.0001) {
                 return back()->withInput()->withErrors([
-                    'items' => "Ordered quantity ({$qtyToOrder}) exceeds remaining request quantity ({$remaining}) for {$prItem->material->name}.",
+                    'items' => "Ordered quantity ({$qty}) exceeds remaining request quantity ({$rem}) for {$prItem->material->name}.",
                 ]);
             }
-
-            $totalQuantityToOrder += $qtyToOrder;
+            $preTotalQty += $qty;
         }
 
-        if ($totalQuantityToOrder <= 0) {
+        if ($preTotalQty <= 0) {
             return back()->withInput()->withErrors([
                 'items' => 'You must order at least one item with a quantity greater than zero.',
             ]);
         }
 
-        $po = DB::transaction(function () use ($validated, $request) {
-            $subtotal = 0.00;
-            $totalTax = 0.00;
+        try {
+            $po = DB::transaction(function () use ($validated, $request) {
+                // Concurrency lock on Purchase Request
+                $lockedRequest = PurchaseRequest::where('id', $request->id)->lockForUpdate()->first();
 
-            // Compute totals first
-            foreach ($validated['items'] as $itemData) {
-                $qty = (float) $itemData['quantity_to_order'];
-                if ($qty <= 0) continue;
+                if (! in_array($lockedRequest->status, ['approved', 'partially_converted'])) {
+                    throw new \Exception('Conversion blocked: Purchase request status has changed or is not approved.');
+                }
 
-                $rate = (float) $itemData['unit_price'];
-                $taxPct = (float) ($itemData['tax_percent'] ?? 18.00);
+                if ($lockedRequest->is_over_budget && ! $lockedRequest->budget_override_approved) {
+                    throw new \Exception('Conversion blocked: Over-budget purchase request lacks an approved budget override.');
+                }
 
-                $lineSub = $qty * $rate;
-                $lineTax = $lineSub * ($taxPct / 100);
+                // Concurrency lock on items
+                $lockedItems = $lockedRequest->items()->lockForUpdate()->get();
 
-                $subtotal += $lineSub;
-                $totalTax += $lineTax;
-            }
+                // Verify quantities and find at least one ordered item
+                $totalQuantityToOrder = 0;
+                $subtotal = 0.00;
+                $totalTax = 0.00;
 
-            $totalAmount = $subtotal + $totalTax;
+                foreach ($validated['items'] as $itemData) {
+                    $qty = (float) $itemData['quantity_to_order'];
+                    if ($qty <= 0) continue;
 
-            $po = PurchaseOrder::create([
-                'company_id' => $request->company_id,
-                'supplier_id' => $validated['supplier_id'],
-                'project_id' => $request->project_id,
-                'purchase_request_id' => $request->id,
-                'po_number' => 'PO-' . date('Y') . '-' . strtoupper(Str::random(5)),
-                'po_date' => $validated['po_date'],
-                'delivery_due_date' => $validated['delivery_due_date'] ?? null,
-                'subtotal' => $subtotal,
-                'tax_amount' => $totalTax,
-                'total_amount' => $totalAmount,
-                'status' => 'approved',
-                'terms_and_conditions' => $validated['terms_and_conditions'] ?? null,
-                'created_by' => Auth::id(),
-                'approved_by' => Auth::id(),
-                'approved_at' => Carbon::now(),
-            ]);
+                    $prItem = $lockedItems->firstWhere('id', $itemData['pr_item_id']);
+                    if (!$prItem) {
+                        throw new \Exception('Invalid PR line item.');
+                    }
 
-            foreach ($validated['items'] as $itemData) {
-                $qty = (float) $itemData['quantity_to_order'];
-                if ($qty <= 0) continue;
+                    $remaining = $prItem->remainingQuantity();
+                    if ($qty > $remaining + 0.0001) {
+                        throw new \Exception("Ordered quantity ({$qty}) exceeds remaining request quantity ({$remaining}) for {$prItem->material->name}.");
+                    }
 
-                $prItem = $request->items->firstWhere('id', $itemData['pr_item_id']);
-                $rate = (float) $itemData['unit_price'];
-                $taxPct = (float) ($itemData['tax_percent'] ?? 18.00);
-                $lineTotal = ($qty * $rate) * (1 + ($taxPct / 100));
+                    $rate = (float) $itemData['unit_price'];
+                    $taxPct = (float) ($itemData['tax_percent'] ?? 18.00);
 
-                PurchaseOrderItem::create([
-                    'purchase_order_id' => $po->id,
-                    'material_id' => $prItem->material_id,
-                    'purchase_request_item_id' => $prItem->id,
-                    'quantity_ordered' => $qty,
-                    'unit_price' => $rate,
-                    'tax_percent' => $taxPct,
-                    'total_price' => $lineTotal,
-                    'quantity_received' => 0.000,
+                    $lineSub = $qty * $rate;
+                    $lineTax = $lineSub * ($taxPct / 100);
+
+                    $subtotal += $lineSub;
+                    $totalTax += $lineTax;
+                    $totalQuantityToOrder += $qty;
+                }
+
+                if ($totalQuantityToOrder <= 0) {
+                    throw new \Exception('You must order at least one item with a quantity greater than zero.');
+                }
+
+                $totalAmount = $subtotal + $totalTax;
+
+                // Safeguard: verify project budget impact of this PO
+                $budgetEval = ProjectBudgetService::evaluateProjectBudget($lockedRequest->project, $totalAmount, $lockedRequest->id);
+                if ($budgetEval['is_over_budget'] && ! $lockedRequest->budget_override_approved) {
+                    throw new \Exception("Conversion blocked: Purchase order total (₹" . number_format($totalAmount, 2) . ") exceeds remaining project budget without an approved budget override.");
+                }
+
+                $po = PurchaseOrder::create([
+                    'company_id' => $lockedRequest->company_id,
+                    'supplier_id' => $validated['supplier_id'],
+                    'project_id' => $lockedRequest->project_id,
+                    'purchase_request_id' => $lockedRequest->id,
+                    'po_number' => 'PO-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                    'po_date' => $validated['po_date'],
+                    'delivery_due_date' => $validated['delivery_due_date'] ?? null,
+                    'subtotal' => $subtotal,
+                    'tax_amount' => $totalTax,
+                    'total_amount' => $totalAmount,
+                    'status' => 'approved',
+                    'terms_and_conditions' => $validated['terms_and_conditions'] ?? null,
+                    'created_by' => Auth::id(),
+                    'approved_by' => Auth::id(),
+                    'approved_at' => Carbon::now(),
                 ]);
 
-                // Increment ordered quantity on PR line
-                $prItem->increment('quantity_ordered', $qty);
-            }
+                foreach ($validated['items'] as $itemData) {
+                    $qty = (float) $itemData['quantity_to_order'];
+                    if ($qty <= 0) continue;
 
-            // Update Purchase Request status
-            $request->refresh();
-            $allFullyOrdered = true;
-            foreach ($request->items as $prItem) {
-                if ($prItem->remainingQuantity() > 0.001) {
-                    $allFullyOrdered = false;
-                    break;
+                    $prItem = $lockedItems->firstWhere('id', $itemData['pr_item_id']);
+                    $rate = (float) $itemData['unit_price'];
+                    $taxPct = (float) ($itemData['tax_percent'] ?? 18.00);
+                    $lineTotal = ($qty * $rate) * (1 + ($taxPct / 100));
+
+                    PurchaseOrderItem::create([
+                        'purchase_order_id' => $po->id,
+                        'material_id' => $prItem->material_id,
+                        'purchase_request_item_id' => $prItem->id,
+                        'quantity_ordered' => $qty,
+                        'unit_price' => $rate,
+                        'tax_percent' => $taxPct,
+                        'total_price' => $lineTotal,
+                        'quantity_received' => 0.000,
+                    ]);
+
+                    // Increment ordered quantity on PR line
+                    $prItem->increment('quantity_ordered', $qty);
                 }
-            }
 
-            $request->update([
-                'status' => $allFullyOrdered ? 'po_created' : 'partially_converted',
-            ]);
+                // Update Purchase Request status
+                $lockedRequest->refresh();
+                $allFullyOrdered = true;
+                foreach ($lockedRequest->items as $prItem) {
+                    if ($prItem->remainingQuantity() > 0.001) {
+                        $allFullyOrdered = false;
+                        break;
+                    }
+                }
 
-            // Audit
-            AuditLog::create([
-                'company_id' => $request->company_id,
-                'user_id' => Auth::id(),
-                'action' => 'purchase_order_created_from_request',
-                'auditable_type' => PurchaseOrder::class,
-                'auditable_id' => $po->id,
-                'new_values' => [
-                    'po_number' => $po->po_number,
-                    'pr_number' => $request->pr_number,
-                    'status' => $request->status,
-                ],
-                'ip_address' => request()->ip(),
-                'user_agent' => request()->userAgent(),
-            ]);
+                $lockedRequest->update([
+                    'status' => $allFullyOrdered ? 'po_created' : 'partially_converted',
+                ]);
 
-            return $po;
-        });
+                // Audit
+                AuditLog::create([
+                    'company_id' => $lockedRequest->company_id,
+                    'user_id' => Auth::id(),
+                    'action' => 'purchase_order_created_from_request',
+                    'auditable_type' => PurchaseOrder::class,
+                    'auditable_id' => $po->id,
+                    'new_values' => [
+                        'po_number' => $po->po_number,
+                        'pr_number' => $lockedRequest->pr_number,
+                        'status' => $lockedRequest->status,
+                        'po_total' => $totalAmount,
+                    ],
+                    'ip_address' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+
+                return $po;
+            });
+        } catch (\Exception $e) {
+            return back()->withInput()->withErrors(['conversion' => $e->getMessage()]);
+        }
 
         return redirect()->route('procurement.show', $po)
             ->with('success', "Purchase Order {$po->po_number} successfully created and linked to {$request->pr_number}.");

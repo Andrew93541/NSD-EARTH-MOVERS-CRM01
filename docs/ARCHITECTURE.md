@@ -56,6 +56,8 @@ app/
 │   │   ├── EmployeeController.php
 │   │   ├── InventoryController.php
 │   │   ├── ProcurementController.php
+│   │   ├── PurchaseRequestController.php
+│   │   ├── ProcurementApprovalPolicyController.php
 │   │   ├── BillingController.php
 │   │   ├── ExpenseController.php
 │   │   ├── LoanController.php
@@ -76,6 +78,10 @@ app/
 │   ├── Material.php
 │   ├── Warehouse.php
 │   ├── StockLedgerEntry.php
+│   ├── PurchaseRequest.php
+│   ├── PurchaseRequestItem.php
+│   ├── ProcurementApprovalPolicy.php
+│   ├── PurchaseRequestApproval.php
 │   ├── PurchaseOrder.php
 │   ├── SupplierInvoice.php
 │   ├── ClientInvoice.php
@@ -84,6 +90,9 @@ app/
 │   └── Loan.php
 ├── Services/
 │   ├── InventoryLedgerService.php
+│   ├── StockAvailabilityService.php
+│   ├── ProjectBudgetService.php
+│   ├── ApprovalPolicyService.php
 │   ├── PayrollCalculationService.php
 │   ├── DoubleEntryAccountingService.php
 │   └── EmiCalculationService.php

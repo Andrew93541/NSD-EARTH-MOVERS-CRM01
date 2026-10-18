@@ -11,6 +11,7 @@ use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\PayrollController;
+use App\Http\Controllers\ProcurementApprovalPolicyController;
 use App\Http\Controllers\ProcurementController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\PurchaseRequestController;
@@ -105,6 +106,14 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/orders/{order}/receive', [ProcurementController::class, 'storeGRN'])->name('receive.store');
         Route::post('/orders/{order}/invoice', [ProcurementController::class, 'storeSupplierInvoice'])->name('invoice.store');
         Route::get('/supplier-invoices', [ProcurementController::class, 'supplierInvoices'])->name('invoices');
+
+        // Approval Policies configuration
+        Route::prefix('approval-policies')->name('policies.')->group(function () {
+            Route::get('/', [ProcurementApprovalPolicyController::class, 'index'])->name('index');
+            Route::post('/', [ProcurementApprovalPolicyController::class, 'store'])->name('store');
+            Route::put('/{policy}', [ProcurementApprovalPolicyController::class, 'update'])->name('update');
+            Route::delete('/{policy}', [ProcurementApprovalPolicyController::class, 'destroy'])->name('destroy');
+        });
     });
 
     // Site Purchase Requests (Material Indents) & PO Conversion

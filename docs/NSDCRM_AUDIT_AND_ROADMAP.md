@@ -130,11 +130,30 @@ As mandated by Section 8 of the project rules:
      - Atomic DB transaction for PO conversion: links `PurchaseOrder` and `PurchaseOrderItem` back to originating PR and PR line items, increments `quantity_ordered`, and updates status to `partially_converted` or `po_created`.
    - Comprehensive Automated Feature Suite (`tests/Feature/PurchaseRequestWorkflowTest.php`):
      - 15 dedicated tests with 111 assertions covering draft creation, submission timestamping, PM notifications, supervisor authorization, segregation of duties, mandatory rejection reason, unapproved conversion blocking, partial ordering, remaining quantity tracking, over-order prevention, cross-company isolation, and GRN/supplier invoice integration.
-   - Full Test Suite: **54 tests, 343 assertions, 0 errors, 100% passing**.
+6. **Stock Availability, Project Budget Validation & Configurable Approval Limits (Completed & Verified)**:
+   - **Additive Schema & Models** (`2026_10_18_000002_create_approval_policies_and_budget_controls.php`):
+     - `procurement_approval_policies`: Company-scoped policy tiers with minimum/maximum expenditure thresholds, role slugs, finance review triggers, and owner approval flags.
+     - `purchase_request_approvals`: Complete audit log of every approval decision recording user, timestamp, tier, action (`approved`, `rejected`, `override_approved`), comments, request valuation, and overrun status.
+     - `purchase_requests`: Added tracking fields: `estimated_total`, `is_pricing_complete`, `is_over_budget`, `budget_overrun_amount`, `current_approval_level`, `required_approval_levels`, `budget_override_approved`, and `budget_override_reason`.
+   - **Services Layer Architecture**:
+     - `StockAvailabilityService`: Double-entry stock ledger as sole source of truth. Evaluates line-item quantities, intended site warehouse balances, ordered quantities, remaining procurement quantities, and shortfalls. Recommends internal stock transfers from central yards when stock exists elsewhere. Enforces strictly non-destructive checks (zero silent reservations or deductions).
+     - `ProjectBudgetService`: Exact decimal arithmetic (`DECIMAL(15, 2)`) evaluating approved project budgets against posted actuals (expenses + supplier bills) and existing commitments (unbilled POs + unconverted PRs) without double counting. Flags incomplete pricing honestly. Calculates overrun amount and budget consumption percentage.
+     - `ApprovalPolicyService`: Dynamically evaluates required approval levels based on request valuation, priority, and budget state. Enforces multi-tier sequential progression (e.g. Tier 1: PM, Tier 2: Finance Review, Tier 3: Owner sign-off). Enforces strict segregation of duties (self-approval prohibited) and company owner override authority.
+   - **Procurement Conversion Concurrency Safeguards**:
+     - Pre-conversion validation with pessimistic database row locking (`lockForUpdate()`).
+     - Refreshes stock availability, verifies all required approval levels have been completed, validates budget override compliance, and prevents duplicate conversions or over-ordering.
+   - **UI & UX Extensions (Google Stitch `15768566540196779944`)**:
+     - `procurement/policies/index.blade.php`: Configurable approval thresholds, role matrix, and segregation-of-duties governance cards.
+     - `purchase-requests/show.blade.php`: Project budget summary cards (approved budget, posted actuals, commitments, net remaining), stock availability table with fulfillment badges & yard transfer prompts, and multi-tier approval timeline with decision logs and override modal.
+     - `purchase-requests/convert.blade.php`: Refreshed stock shortfall alerts and budget impact indicators before generating purchase orders.
+     - `purchase-requests/index.blade.php`: Over-budget badges, pricing completeness flags, and multi-tier approval progress badges (`Pending L1/2`).
+   - **Automated Feature Suite** (`tests/Feature/StockAndBudgetApprovalControlsTest.php`):
+     - 7 comprehensive tests with 51 assertions covering ledger-backed stock checks without silent deductions, budget calculations without double-counting commitments, over-budget detection and mandatory override reasons, server-side multi-tier approval enforcement, policy access control, conversion blocking on missing approvals, and cross-company isolation.
+   - **Full Test Suite**: **61 tests, 394 assertions, 0 errors, 100% passing**.
 
 ---
 
-## 6. Next Implementation Target: Advanced Workflows & Client Milestone Retentions
+## 7. Next Implementation Target: Advanced Workflows & Client Milestone Retentions
 
 The next prioritized items on the operational roadmap:
 1. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.

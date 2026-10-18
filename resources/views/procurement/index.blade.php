@@ -8,6 +8,15 @@
             <p class="text-xs text-gray-500 mt-1">Vendor requisitions, purchase orders, deliveries, and three-way matching.</p>
         </div>
         <div class="flex items-center gap-2">
+            @php
+                $userRole = Auth::user()?->currentRole()?->slug;
+                $isAdmin = Auth::user()?->hasPermission('*') || in_array($userRole, ['owner', 'admin']);
+            @endphp
+            @if ($isAdmin)
+                <a href="{{ route('procurement.policies.index') }}" class="px-3.5 py-2 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 rounded-xl text-xs font-semibold shadow-sm transition">
+                    Approval Limits & Policies
+                </a>
+            @endif
             <a href="{{ route('procurement.invoices') }}" class="px-3.5 py-2 bg-white border border-gray-200 hover:border-gray-300 text-gray-700 rounded-xl text-xs font-semibold shadow-sm transition">
                 Supplier Invoices
             </a>

@@ -71,7 +71,10 @@ This document outlines the phased implementation plan, tech stack alignment, arc
 - [x] Project Manager Approval Workflow: segregation of duties enforcement, mandatory rejection reason with audit logging, and lifecycle timeline
 - [x] Procurement PO Conversion: atomic database transactions, partial conversion tracking, GST calculation, and over-order prevention
 - [x] Three-way matching: PO -> Goods Receipt (GRN) -> Supplier Invoice
-- [x] Automated tests for atomic stock transfers (`InventoryTransferTest.php`), procurement receipt & invoice (`ProcurementAndGoodsReceiptTest.php`), and PR workflow (`PurchaseRequestWorkflowTest.php` - 15 tests, 111 assertions)
+- [x] Stock Availability Checks: ledger-backed live stock at destination warehouse, shortfall calculations, central yard transfer prompts, zero silent reservations/deductions (`StockAvailabilityService.php`)
+- [x] Project Budget Validation: approved budget vs posted actuals (expenses + bills) and commitments (unbilled POs + open PRs) without double-counting, overrun warnings, and mandatory override reason (`ProjectBudgetService.php`)
+- [x] Configurable Approval Limits: company-level approval tiers, multi-level sequential approvals, segregation of duties, server-side authority enforcement, and conversion safeguards (`ApprovalPolicyService.php`, `ProcurementApprovalPolicyController.php`)
+- [x] Automated tests for atomic stock transfers (`InventoryTransferTest.php`), procurement receipt & invoice (`ProcurementAndGoodsReceiptTest.php`), PR workflow (`PurchaseRequestWorkflowTest.php`), and stock & budget approval controls (`StockAndBudgetApprovalControlsTest.php` - 7 tests, 51 assertions)
 
 ### [x] Phase 5 — Payroll & Client Billing
 - [x] Schema: `payroll_periods`, `salary_structures`, `payroll_records`, `payslips`

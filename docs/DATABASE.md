@@ -18,6 +18,11 @@ erDiagram
     WAREHOUSES ||--o{ STOCK_LEDGER_ENTRIES : holds
     MATERIALS ||--o{ STOCK_LEDGER_ENTRIES : tracked_in
     COMPANIES ||--o{ SUPPLIERS : procures_from
+    COMPANIES ||--o{ PROCUREMENT_APPROVAL_POLICIES : configures
+    COMPANIES ||--o{ PURCHASE_REQUESTS : initiates
+    PURCHASE_REQUESTS ||--o{ PURCHASE_REQUEST_ITEMS : contains
+    PURCHASE_REQUESTS ||--o{ PURCHASE_REQUEST_APPROVALS : audited_by
+    PURCHASE_REQUESTS ||--o{ PURCHASE_ORDERS : converted_to
     SUPPLIERS ||--o{ PURCHASE_ORDERS : fulfills
     PURCHASE_ORDERS ||--o{ SUPPLIER_INVOICES : bills
     COMPANIES ||--o{ CLIENTS : contracts_with
@@ -58,8 +63,10 @@ erDiagram
 
 ### Procurement & Supplier Payables
 - `suppliers`: `id`, `company_id`, `name`, `gstin`, `payment_terms`, `bank_details`, `timestamps`
-- `purchase_requests`: `id`, `company_id`, `pr_number` (string, unique), `project_id`, `site_id`, `warehouse_id` (nullable), `request_date`, `required_by_date`, `status` (`draft`, `pending`, `approved`, `rejected`, `partially_converted`, `po_created`, `cancelled`), `priority` (`normal`, `urgent`, `critical`), `reason` (text), `rejection_reason` (text, nullable), `requested_by` (foreign key `users`), `submitted_at` (datetime, nullable), `approved_by` (foreign key `users`, nullable), `approved_at` (datetime, nullable), `timestamps`
+- `purchase_requests`: `id`, `company_id`, `pr_number` (string, unique), `project_id`, `site_id`, `warehouse_id` (nullable), `request_date`, `required_by_date`, `status` (`draft`, `pending`, `approved`, `rejected`, `partially_converted`, `po_created`, `cancelled`), `priority` (`normal`, `urgent`, `critical`), `reason` (text), `rejection_reason` (text, nullable), `requested_by` (foreign key `users`), `submitted_at` (datetime, nullable), `approved_by` (foreign key `users`, nullable), `approved_at` (datetime, nullable), `estimated_total` (DECIMAL 15,2), `is_pricing_complete` (BOOLEAN), `is_over_budget` (BOOLEAN), `budget_overrun_amount` (DECIMAL 15,2), `current_approval_level` (TINYINT), `required_approval_levels` (TINYINT), `budget_override_approved` (BOOLEAN), `budget_override_reason` (text, nullable), `timestamps`
 - `purchase_request_items`: `id`, `purchase_request_id`, `material_id`, `specifications` (string, nullable), `quantity_requested` (DECIMAL 12,3), `quantity_ordered` (DECIMAL 12,3), `estimated_rate` (DECIMAL 12,2), `timestamps`
+- `procurement_approval_policies`: `id`, `company_id`, `tier_name` (string), `min_amount` (DECIMAL 15,2), `max_amount` (DECIMAL 15,2, nullable), `approval_level` (TINYINT), `role_slug` (string), `requires_finance_review` (BOOLEAN), `requires_owner_approval` (BOOLEAN), `is_active` (BOOLEAN), `timestamps`
+- `purchase_request_approvals`: `id`, `purchase_request_id` (foreign key `purchase_requests`), `user_id` (foreign key `users`), `approval_level` (TINYINT), `role_slug_at_approval` (string), `action` (`approved`, `rejected`, `override_approved`), `comments` (text, nullable), `policy_tier_applied` (string, nullable), `request_estimated_total` (DECIMAL 15,2, nullable), `was_over_budget` (BOOLEAN), `timestamps`
 - `purchase_orders`: `id`, `company_id`, `supplier_id`, `project_id`, `purchase_request_id` (nullable foreign key `purchase_requests`), `po_number`, `po_date`, `delivery_due_date` (nullable), `subtotal`, `tax_amount`, `total_amount`, `status` (`draft`, `approved`, `partially_received`, `completed`, `cancelled`), `terms_and_conditions`, `created_by`, `approved_by`, `approved_at`, `timestamps`
 - `purchase_order_items`: `id`, `purchase_order_id`, `material_id`, `purchase_request_item_id` (nullable foreign key `purchase_request_items`), `quantity_ordered` (DECIMAL 12,3), `quantity_received` (DECIMAL 12,3), `unit_price` (DECIMAL 12,2), `tax_percent` (DECIMAL 5,2), `total_price` (DECIMAL 12,2), `timestamps`
 - `goods_receipts`: `id`, `company_id`, `purchase_order_id`, `warehouse_id`, `grn_number`, `received_date`, `timestamps`

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="max-w-4xl mx-auto space-y-6" x-data="poConversionForm()">
+<div class="max-w-5xl mx-auto space-y-6" x-data="poConversionForm()">
     <div class="flex items-center justify-between">
         <div>
             <div class="flex items-center gap-3">
@@ -10,7 +10,7 @@
                     {{ $request->pr_number }}
                 </span>
             </div>
-            <p class="text-xs text-gray-500 mt-1">Issue official procurement order to approved supplier against verified site indent.</p>
+            <p class="text-xs text-gray-500 mt-1">Issue official procurement order to approved supplier with real-time stock and budget verification.</p>
         </div>
         <a href="{{ route('purchase-requests.show', $request) }}" class="text-xs font-semibold text-gray-500 hover:text-gray-700">← Back to Request</a>
     </div>
@@ -26,6 +26,44 @@
         </div>
     @endif
 
+    <!-- Safeguards & Financial Health Banner -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Stock Verification -->
+        <div class="p-4 bg-gray-50/80 border border-gray-200 rounded-2xl text-xs space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-900 uppercase text-[10px] tracking-wider">Refreshed Stock Availability</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase {{ $stockAnalysis['overall_status'] === 'available' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200' }}">
+                    {{ $stockAnalysis['overall_status_label'] }}
+                </span>
+            </div>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+                Total shortfall across indent: <strong class="font-mono text-gray-900">{{ number_format($stockAnalysis['total_shortfall_units'], 2) }} units</strong>.
+                Physical inventory changes only through authorized goods receipts.
+            </p>
+        </div>
+
+        <!-- Project Budget Verification -->
+        <div class="p-4 bg-gray-50/80 border border-gray-200 rounded-2xl text-xs space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-900 uppercase text-[10px] tracking-wider">Project Budget Safeguard</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold border uppercase {{ $budgetAnalysis['badge_class'] }}">
+                    {{ $budgetAnalysis['status_label'] }}
+                </span>
+            </div>
+            <div class="text-gray-600 text-[11px] flex justify-between">
+                <span>Remaining Budget:</span>
+                <span class="font-mono font-bold {{ $budgetAnalysis['remaining_before'] < 0 ? 'text-red-600' : 'text-emerald-700' }}">
+                    ₹{{ number_format($budgetAnalysis['remaining_before'], 2) }}
+                </span>
+            </div>
+            @if ($request->budget_override_approved)
+                <div class="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                    ✓ Authorized Budget Override: {{ $request->budget_override_reason }}
+                </div>
+            @endif
+        </div>
+    </div>
+
     <form method="POST" action="{{ route('purchase-requests.convert.store', $request) }}" class="space-y-6">
         @csrf
 
@@ -40,8 +78,8 @@
                 <strong class="text-gray-900 mt-0.5 block">{{ $request->site->name }}</strong>
             </div>
             <div>
-                <span class="text-blue-700/70 block uppercase font-bold text-[10px]">Approved By</span>
-                <strong class="text-gray-900 mt-0.5 block">{{ $request->approver->name ?? 'Project Manager' }}</strong>
+                <span class="text-blue-700/70 block uppercase font-bold text-[10px]">Approval Status</span>
+                <strong class="text-gray-900 mt-0.5 block">Level {{ $request->current_approval_level }} / {{ $request->required_approval_levels }} (Complete)</strong>
             </div>
             <div>
                 <span class="text-blue-700/70 block uppercase font-bold text-[10px]">Approval Date</span>
@@ -196,7 +234,7 @@
         <!-- Action Buttons -->
         <div class="flex items-center justify-end gap-3 pt-2">
             <a href="{{ route('purchase-requests.show', $request) }}" class="px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700">Cancel</a>
-            <button type="submit" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition flex items-center gap-2">
+            <button type="submit" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition flex items-center gap-2 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 <span>Generate Official Purchase Order</span>
             </button>

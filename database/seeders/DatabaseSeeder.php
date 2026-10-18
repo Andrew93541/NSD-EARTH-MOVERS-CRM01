@@ -17,6 +17,7 @@ use App\Models\Loan;
 use App\Models\LoanEmiSchedule;
 use App\Models\Material;
 use App\Models\MaterialCategory;
+use App\Models\ProcurementApprovalPolicy;
 use App\Models\Project;
 use App\Models\ProjectMilestone;
 use App\Models\PurchaseOrder;
@@ -666,6 +667,58 @@ class DatabaseSeeder extends Seeder
             'debit' => 0.00,
             'credit' => 2938000.00,
             'description' => 'Contract revenue credit for invoice INV-RA-2026-012',
+        ]);
+
+        // 13. Sample Procurement Approval Policies (Development / Demo configuration)
+        ProcurementApprovalPolicy::create([
+            'company_id' => $company->id,
+            'name' => 'Tier 1: Standard Site Material Indent (Up to ₹50,000)',
+            'approval_level' => 1,
+            'min_amount' => 0.00,
+            'max_amount' => 50000.00,
+            'approver_role_id' => $pmRole->id,
+            'approver_role_slug' => 'project_manager',
+            'requires_owner' => false,
+            'over_budget_requires_owner' => true,
+            'unknown_price_rule' => 'escalate_to_owner',
+            'prevent_self_approval' => true,
+            'urgent_escalation' => false,
+            'is_active' => true,
+            'description' => 'Sample Configuration: Routine site material requests approved by assigned Project Manager.',
+        ]);
+
+        ProcurementApprovalPolicy::create([
+            'company_id' => $company->id,
+            'name' => 'Tier 2: Mid-value Procurement (₹50,000 to ₹5,00,000)',
+            'approval_level' => 2,
+            'min_amount' => 50000.00,
+            'max_amount' => 500000.00,
+            'approver_role_id' => $accountantRole->id,
+            'approver_role_slug' => 'accountant',
+            'requires_owner' => false,
+            'over_budget_requires_owner' => true,
+            'unknown_price_rule' => 'escalate_to_owner',
+            'prevent_self_approval' => true,
+            'urgent_escalation' => true,
+            'is_active' => true,
+            'description' => 'Sample Configuration: Mid-tier purchases requiring Finance/Accountant review after Project Manager sign-off.',
+        ]);
+
+        ProcurementApprovalPolicy::create([
+            'company_id' => $company->id,
+            'name' => 'Tier 3: High-value Major Procurement (> ₹5,00,000)',
+            'approval_level' => 3,
+            'min_amount' => 500000.00,
+            'max_amount' => null,
+            'approver_role_id' => $ownerRole->id,
+            'approver_role_slug' => 'owner',
+            'requires_owner' => true,
+            'over_budget_requires_owner' => true,
+            'unknown_price_rule' => 'escalate_to_owner',
+            'prevent_self_approval' => true,
+            'urgent_escalation' => true,
+            'is_active' => true,
+            'description' => 'Sample Configuration: Capital materials and heavy bulk orders requiring Company Owner sign-off.',
         ]);
     }
 }
