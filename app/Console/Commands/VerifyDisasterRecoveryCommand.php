@@ -280,6 +280,18 @@ class VerifyDisasterRecoveryCommand extends Command
         $env = [
             'PATH' => getenv('PATH') ?: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
         ];
+        if (getenv('SystemRoot')) {
+            $env['SystemRoot'] = getenv('SystemRoot');
+        }
+        if (getenv('SYSTEMROOT')) {
+            $env['SYSTEMROOT'] = getenv('SYSTEMROOT');
+        }
+        if (getenv('TEMP')) {
+            $env['TEMP'] = getenv('TEMP');
+        }
+        if (getenv('TMP')) {
+            $env['TMP'] = getenv('TMP');
+        }
         if ($mysqlPassword !== null) {
             $env['MYSQL_PWD'] = $mysqlPassword;
         }

@@ -287,7 +287,7 @@ class BackupManager
                         $actualTarChecksum = hash_file('sha256', $tempDecryptedTar);
 
                         // Test tar list readability
-                        $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($tempDecryptedTar) . " > /dev/null 2>&1");
+                        $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($tempDecryptedTar));
                         @unlink($tempDecryptedTar);
 
                         if ($actualTarChecksum !== $manifest['storage']['archive_checksum']) {
@@ -304,7 +304,7 @@ class BackupManager
                     if ($actualTarChecksum !== $manifest['storage']['archive_checksum']) {
                         $errors[] = "Storage archive checksum mismatch.";
                     }
-                    $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($archiveFilePath) . " > /dev/null 2>&1");
+                    $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($archiveFilePath));
                     if ($tarCode !== 0) {
                         $errors[] = "Storage archive is corrupted or unreadable by tar.";
                     }
@@ -743,6 +743,18 @@ class BackupManager
         $env = [
             'PATH' => getenv('PATH') ?: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
         ];
+        if (getenv('SystemRoot')) {
+            $env['SystemRoot'] = getenv('SystemRoot');
+        }
+        if (getenv('SYSTEMROOT')) {
+            $env['SYSTEMROOT'] = getenv('SYSTEMROOT');
+        }
+        if (getenv('TEMP')) {
+            $env['TEMP'] = getenv('TEMP');
+        }
+        if (getenv('TMP')) {
+            $env['TMP'] = getenv('TMP');
+        }
         if ($mysqlPassword !== null) {
             $env['MYSQL_PWD'] = $mysqlPassword;
         }

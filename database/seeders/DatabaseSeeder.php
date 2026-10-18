@@ -1089,7 +1089,7 @@ class DatabaseSeeder extends Seeder
             'amount' => 250000.00,
             'payment_mode' => 'bank_transfer',
             'payment_reference' => 'RTGS-HDFC-882910',
-            'bank_account_id' => $bankAcc->id,
+            'bank_account_id' => $cashAcc->id,
             'notes' => 'Partial payment released against certified RA Bill 1',
         ], $accountant);
     }
