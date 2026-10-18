@@ -2,16 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GoodsReceipt;
+use App\Models\GoodsReceiptItem;
 use App\Models\Material;
 use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\StockLedgerEntry;
 use App\Models\Supplier;
 use App\Models\SupplierInvoice;
+use App\Models\Warehouse;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -90,9 +95,200 @@ class ProcurementController extends Controller
 
     public function show(PurchaseOrder $order): View
     {
-        $order->load(['supplier', 'project', 'items.material', 'creator', 'approver']);
+        $order->load([
+            'supplier',
+            'project',
+            'items.material',
+            'creator',
+            'approver',
+            'goodsReceipts.warehouse',
+            'goodsReceipts.items.material',
+            'goodsReceipts.receiver',
+            'supplierInvoices',
+        ]);
 
         return view('procurement.show', compact('order'));
+    }
+
+    public function createGRN(PurchaseOrder $order): View|RedirectResponse
+    {
+        if (in_array($order->status, ['completed', 'cancelled'])) {
+            return redirect()->route('procurement.show', $order)
+                ->withErrors(['status' => 'This purchase order is already marked as ' . $order->status . ' and cannot accept further goods receipts.']);
+        }
+
+        $order->load(['items.material', 'supplier', 'project']);
+        $warehouses = Warehouse::where('is_active', true)->orderBy('name')->get();
+
+        return view('procurement.receive', compact('order', 'warehouses'));
+    }
+
+    public function storeGRN(Request $request, PurchaseOrder $order): RedirectResponse
+    {
+        if (in_array($order->status, ['completed', 'cancelled'])) {
+            return redirect()->route('procurement.show', $order)
+                ->withErrors(['status' => 'This purchase order is already marked as ' . $order->status . '.']);
+        }
+
+        $validated = $request->validate([
+            'warehouse_id' => 'required|exists:warehouses,id',
+            'receipt_date' => 'required|date',
+            'delivery_challan_number' => 'required|string|max:100',
+            'vehicle_number' => 'nullable|string|max:50',
+            'remarks' => 'nullable|string',
+            'items' => 'required|array|min:1',
+            'items.*.item_id' => 'required|exists:purchase_order_items,id',
+            'items.*.quantity_received' => 'required|numeric|min:0',
+            'items.*.quantity_accepted' => 'required|numeric|min:0',
+            'items.*.quantity_rejected' => 'nullable|numeric|min:0',
+            'items.*.rejection_reason' => 'nullable|string|max:255',
+        ]);
+
+        $order->load('items');
+
+        // Validation: verify quantities
+        $totalReceivedInBatch = 0;
+        foreach ($validated['items'] as $itemData) {
+            $poItem = $order->items->firstWhere('id', $itemData['item_id']);
+            if (!$poItem) {
+                return back()->withInput()->withErrors(['items' => 'Invalid PO item specified.']);
+            }
+
+            $rec = (float) $itemData['quantity_received'];
+            $acc = (float) $itemData['quantity_accepted'];
+            $rej = (float) ($itemData['quantity_rejected'] ?? 0);
+
+            if (round($acc + $rej, 3) !== round($rec, 3)) {
+                return back()->withInput()->withErrors([
+                    'items' => "For material {$poItem->material->name}, accepted ({$acc}) + rejected ({$rej}) must equal total received ({$rec}).",
+                ]);
+            }
+
+            $remainingAllowed = (float) ($poItem->quantity_ordered - $poItem->quantity_received);
+            if ($acc > $remainingAllowed + 0.0001) {
+                return back()->withInput()->withErrors([
+                    'items' => "Accepted quantity ({$acc}) exceeds remaining ordered quantity ({$remainingAllowed}) for {$poItem->material->name}.",
+                ]);
+            }
+
+            $totalReceivedInBatch += $rec;
+        }
+
+        if ($totalReceivedInBatch <= 0) {
+            return back()->withInput()->withErrors([
+                'items' => 'At least one material item must have a received quantity greater than zero.',
+            ]);
+        }
+
+        DB::transaction(function () use ($validated, $order) {
+            $grn = GoodsReceipt::create([
+                'purchase_order_id' => $order->id,
+                'warehouse_id' => $validated['warehouse_id'],
+                'grn_number' => 'GRN-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                'receipt_date' => $validated['receipt_date'],
+                'delivery_challan_number' => $validated['delivery_challan_number'],
+                'vehicle_number' => $validated['vehicle_number'] ?? null,
+                'received_by' => Auth::id(),
+                'remarks' => $validated['remarks'] ?? null,
+            ]);
+
+            foreach ($validated['items'] as $itemData) {
+                $poItem = $order->items->firstWhere('id', $itemData['item_id']);
+                $rec = (float) $itemData['quantity_received'];
+                $acc = (float) $itemData['quantity_accepted'];
+                $rej = (float) ($itemData['quantity_rejected'] ?? 0);
+
+                if ($rec <= 0) {
+                    continue;
+                }
+
+                GoodsReceiptItem::create([
+                    'goods_receipt_id' => $grn->id,
+                    'material_id' => $poItem->material_id,
+                    'quantity_received' => $rec,
+                    'quantity_accepted' => $acc,
+                    'quantity_rejected' => $rej,
+                    'rejection_reason' => $itemData['rejection_reason'] ?? null,
+                ]);
+
+                // Update PO item quantity_received
+                $poItem->increment('quantity_received', $acc);
+
+                // Update stock ledger if accepted > 0
+                if ($acc > 0) {
+                    $currentWarehouseStock = StockLedgerEntry::where('material_id', $poItem->material_id)
+                        ->where('warehouse_id', $validated['warehouse_id'])
+                        ->where('direction', 'in')->sum('quantity') -
+                        StockLedgerEntry::where('material_id', $poItem->material_id)
+                        ->where('warehouse_id', $validated['warehouse_id'])
+                        ->where('direction', 'out')->sum('quantity');
+
+                    StockLedgerEntry::create([
+                        'material_id' => $poItem->material_id,
+                        'warehouse_id' => $validated['warehouse_id'],
+                        'entry_date' => $validated['receipt_date'],
+                        'transaction_type' => 'goods_receipt',
+                        'reference_type' => 'goods_receipts',
+                        'reference_id' => $grn->id,
+                        'quantity' => $acc,
+                        'direction' => 'in',
+                        'unit_rate' => $poItem->unit_price,
+                        'total_amount' => round($acc * (float) $poItem->unit_price, 2),
+                        'balance_quantity' => $currentWarehouseStock + $acc,
+                        'created_by' => Auth::id(),
+                    ]);
+                }
+            }
+
+            // Determine if PO is fully received
+            $order->refresh();
+            $allCompleted = true;
+            foreach ($order->items as $item) {
+                if ((float) $item->quantity_received < (float) $item->quantity_ordered) {
+                    $allCompleted = false;
+                    break;
+                }
+            }
+
+            $order->update([
+                'status' => $allCompleted ? 'completed' : 'partially_received',
+            ]);
+        });
+
+        return redirect()->route('procurement.show', $order)
+            ->with('success', "Goods Receipt Note recorded successfully. Warehouse inventory has been credited.");
+    }
+
+    public function storeSupplierInvoice(Request $request, PurchaseOrder $order): RedirectResponse
+    {
+        $validated = $request->validate([
+            'invoice_number' => 'required|string|max:100',
+            'invoice_date' => 'required|date',
+            'due_date' => 'required|date|after_or_equal:invoice_date',
+            'subtotal' => 'required|numeric|min:0',
+            'tax_amount' => 'nullable|numeric|min:0',
+        ]);
+
+        $tax = (float) ($validated['tax_amount'] ?? 0);
+        $total = (float) $validated['subtotal'] + $tax;
+
+        SupplierInvoice::create([
+            'supplier_id' => $order->supplier_id,
+            'purchase_order_id' => $order->id,
+            'invoice_number' => $validated['invoice_number'],
+            'invoice_date' => $validated['invoice_date'],
+            'due_date' => $validated['due_date'],
+            'subtotal' => $validated['subtotal'],
+            'tax_amount' => $tax,
+            'total_amount' => $total,
+            'paid_amount' => 0.00,
+            'status' => 'pending_approval',
+            'approved_by' => Auth::id(),
+            'approved_at' => Carbon::now(),
+        ]);
+
+        return redirect()->route('procurement.show', $order)
+            ->with('success', "Supplier Invoice {$validated['invoice_number']} recorded for payment matching.");
     }
 
     public function supplierInvoices(Request $request): View

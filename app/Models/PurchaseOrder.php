@@ -46,4 +46,14 @@ class PurchaseOrder extends Model
     {
         return $this->belongsTo(User::class, 'approved_by');
     }
+
+    public function goodsReceipts(): HasMany
+    {
+        return $this->hasMany(GoodsReceipt::class);
+    }
+
+    public function supplierInvoices(): HasMany
+    {
+        return $this->hasMany(SupplierInvoice::class);
+    }
 }

@@ -100,6 +100,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/create-po', [ProcurementController::class, 'createPO'])->name('create');
         Route::post('/create-po', [ProcurementController::class, 'storePO'])->name('store');
         Route::get('/orders/{order}', [ProcurementController::class, 'show'])->name('show');
+        Route::get('/orders/{order}/receive', [ProcurementController::class, 'createGRN'])->name('receive');
+        Route::post('/orders/{order}/receive', [ProcurementController::class, 'storeGRN'])->name('receive.store');
+        Route::post('/orders/{order}/invoice', [ProcurementController::class, 'storeSupplierInvoice'])->name('invoice.store');
         Route::get('/supplier-invoices', [ProcurementController::class, 'supplierInvoices'])->name('invoices');
     });
 
