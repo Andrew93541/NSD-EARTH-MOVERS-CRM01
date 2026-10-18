@@ -105,3 +105,48 @@ stateDiagram-v2
 - `GST` = Applicable CGST + SGST or IGST (e.g. 18%)
 - `Retention Amount` = Subtotal * Retention Rate (e.g. 5%)
 - `Net Payable` = Subtotal + GST - Retention - TDS Deductions
+
+---
+
+## 5. Role-Specific Execution Paths & Governance
+
+```mermaid
+flowchart TD
+    SS[Site Supervisor] -->|1. Creates Indent| PR[Purchase Request: Draft]
+    SS -->|2. Submits Indent| PRA[PR: Pending Approval]
+    PM[Project Manager] -->|3. Level 1 Review| L1[Tier 1 Approval Passed]
+    FA[Finance Approver / Accountant] -->|4. Level 2 Review| L2[Tier 2 Approval Passed]
+    OWN[Company Owner] -->|5. Over-Budget Override / L3| L3[Fully Approved]
+    PO[Procurement Officer] -->|6. Converts to PO| ORD[Purchase Order Issued]
+    SK[Storekeeper] -->|7. GRN & Quality Inspection| GRN[Goods Receipt: Stock Inward]
+    FA -->|8. Records Vendor Bill & Payment| PMT[Supplier Invoice Settled]
+    FA -->|9. Posts Journal & Reviews Trial Balance| ACC[Double-Entry Accounts Balanced]
+```
+
+### Role Governance Invariants
+1. **Site Supervisor (`site@buildflow.local`)**:
+   - Scope limited to assigned projects and sites.
+   - Submits daily site logs, updates worker muster roll, and creates material indents.
+   - Gated from viewing wage rates, bank accounts, or financial ledgers (HTTP 403 on direct route access).
+2. **Project Manager (`pm@buildflow.local`)**:
+   - Manages projects, reviews milestones, and conducts Tier 1 purchase request approvals.
+   - Prohibited from self-approving purchase requests they initiated (Segregation of Duties).
+3. **HR / Payroll Officer (`hr@buildflow.local`)**:
+   - Generates payroll periods from approved attendance muster roll data.
+   - Prepares wage batches, calculates statutory deductions (PF) and overtime.
+   - Finalizes and disburses payroll; locks historical attendance dates from subsequent edits.
+4. **Finance Approver / Accountant (`accounts@buildflow.local`)**:
+   - Reviews Tier 2 high-value or over-budget purchase requests.
+   - Records client invoice payments with pessimistic locking (`lockForUpdate()`), preventing overpayment.
+   - Enforces balanced debit/credit equality on journal entries.
+   - Blocked from modifying company procurement approval policies (HTTP 403).
+5. **Procurement Officer (`procurement@buildflow.local`)**:
+   - Reviews fully approved purchase requests and converts approved line items into Purchase Orders.
+   - Blocked from creating unapproved POs directly or bypassing policy thresholds.
+6. **Storekeeper (`storekeeper@buildflow.local`)**:
+   - Inspects physical deliveries, records delivery challan & vehicle registration, logs accepted vs rejected quantities with mandatory reasons.
+   - Inward movements credit `StockLedgerEntry` automatically. Rejections do not inflate inventory valuation.
+7. **Company Owner / Administrator (`admin@buildflow.local`)**:
+   - Holds company-wide management authority (`*`).
+   - Only role authorized to grant budget overrun overrides and configure company approval policy thresholds.
+

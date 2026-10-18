@@ -10,13 +10,25 @@ use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class BillingController extends Controller
 {
+    protected function authorizeBilling(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('billing.*') && ! $user->hasPermission('finance.*') && ! in_array($roleSlug, ['owner', 'admin', 'accountant']))) {
+            abort(403, 'Unauthorized access to client billing, contracts, and revenue receipts.');
+        }
+    }
+
     public function index(Request $request): View
     {
+        $this->authorizeBilling();
+
         $invoices = ClientInvoice::with(['client', 'project', 'payments'])
             ->latest('issue_date')
             ->paginate(10);
@@ -36,6 +48,8 @@ class BillingController extends Controller
 
     public function createInvoice(): View
     {
+        $this->authorizeBilling();
+
         $clients = Client::orderBy('name')->get();
         $projects = Project::orderBy('name')->get();
 
@@ -44,6 +58,8 @@ class BillingController extends Controller
 
     public function storeInvoice(Request $request): RedirectResponse
     {
+        $this->authorizeBilling();
+
         $validated = $request->validate([
             'client_id' => 'required|exists:clients,id',
             'project_id' => 'required|exists:projects,id',
@@ -88,6 +104,8 @@ class BillingController extends Controller
 
     public function show(ClientInvoice $invoice): View
     {
+        $this->authorizeBilling();
+
         $invoice->load(['client', 'project', 'creator', 'payments.recorder']);
 
         return view('billing.show', compact('invoice'));
@@ -95,6 +113,8 @@ class BillingController extends Controller
 
     public function recordPayment(Request $request, ClientInvoice $invoice): RedirectResponse
     {
+        $this->authorizeBilling();
+
         $maxDue = $invoice->balanceDue();
 
         $validated = $request->validate([
@@ -105,25 +125,36 @@ class BillingController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        InvoicePayment::create([
-            'client_invoice_id' => $invoice->id,
-            'receipt_number' => 'RCP-' . date('Y') . '-' . strtoupper(Str::random(5)),
-            'payment_date' => $validated['payment_date'],
-            'amount' => $validated['amount'],
-            'payment_mode' => $validated['payment_mode'],
-            'reference_number' => $validated['reference_number'] ?? null,
-            'notes' => $validated['notes'] ?? null,
-            'recorded_by' => Auth::id(),
-        ]);
+        return DB::transaction(function () use ($validated, $invoice) {
+            $lockedInvoice = ClientInvoice::where('id', $invoice->id)->lockForUpdate()->firstOrFail();
+            $freshBalanceDue = $lockedInvoice->balanceDue();
 
-        $newPaid = $invoice->paid_amount + $validated['amount'];
-        $newStatus = ($newPaid >= $invoice->total_amount) ? 'paid' : 'partially_paid';
+            if ($validated['amount'] > $freshBalanceDue) {
+                return back()->withInput()->withErrors([
+                    'amount' => "Payment amount exceeds current balance due of ₹" . number_format($freshBalanceDue, 2),
+                ]);
+            }
 
-        $invoice->update([
-            'paid_amount' => $newPaid,
-            'status' => $newStatus,
-        ]);
+            InvoicePayment::create([
+                'client_invoice_id' => $lockedInvoice->id,
+                'receipt_number' => 'RCP-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                'payment_date' => $validated['payment_date'],
+                'amount' => $validated['amount'],
+                'payment_mode' => $validated['payment_mode'],
+                'reference_number' => $validated['reference_number'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+                'recorded_by' => Auth::id(),
+            ]);
 
-        return redirect()->route('billing.show', $invoice)->with('success', 'Client payment receipt recorded and balance updated.');
+            $newPaid = $lockedInvoice->paid_amount + $validated['amount'];
+            $newStatus = ($newPaid >= $lockedInvoice->total_amount) ? 'paid' : 'partially_paid';
+
+            $lockedInvoice->update([
+                'paid_amount' => $newPaid,
+                'status' => $newStatus,
+            ]);
+
+            return redirect()->route('billing.show', $lockedInvoice)->with('success', 'Client payment receipt recorded and balance updated.');
+        });
     }
 }

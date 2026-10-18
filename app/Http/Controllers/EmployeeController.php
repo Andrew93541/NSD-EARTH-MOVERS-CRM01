@@ -7,10 +7,21 @@ use App\Models\Shift;
 use App\Models\Site;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class EmployeeController extends Controller
 {
+    protected function authorizeEmployeeManage(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $canManage = $user && ($user->hasPermission('*') || $user->hasPermission('employees.*') || in_array($roleSlug, ['owner', 'admin', 'hr_officer']));
+        if (! $canManage) {
+            abort(403, 'Unauthorized. Employee profile creation and modification is restricted to HR Officers and Administrators.');
+        }
+    }
+
     public function index(Request $request): View
     {
         $query = Employee::with(['assignedSite', 'shift']);
@@ -36,6 +47,8 @@ class EmployeeController extends Controller
 
     public function create(): View
     {
+        $this->authorizeEmployeeManage();
+
         $sites = Site::orderBy('name')->get();
         $shifts = Shift::orderBy('name')->get();
 
@@ -44,6 +57,7 @@ class EmployeeController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        $this->authorizeEmployeeManage();
         $validated = $request->validate([
             'first_name' => 'required|string|max:100',
             'last_name' => 'nullable|string|max:100',

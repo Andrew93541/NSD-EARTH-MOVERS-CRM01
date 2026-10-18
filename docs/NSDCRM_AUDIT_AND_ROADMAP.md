@@ -153,12 +153,63 @@ As mandated by Section 8 of the project rules:
 
 ---
 
-## 7. Next Implementation Target: Advanced Workflows & Client Milestone Retentions
+### Phase 7 & 8 — Role-Based End-to-End Quality Audit, Real Browser Verification & Security Hardening (Completed & Verified)
+1. **Role-Based Permission Matrix & Test Accounts**:
+   - Seeded and verified dedicated accounts for all 7 organizational roles (`Company 1` - NSD Earth Movers & Construction Ltd):
+     - **Owner / Administrator**: `admin@buildflow.local` (`*` wildcards, company-wide management & override authority)
+     - **Project Manager**: `pm@buildflow.local` (`projects.*`, `sites.*`, `materials.request`, `attendance.view`, `attendance.muster`)
+     - **Site Supervisor**: `site@buildflow.local` (`sites.view`, `daily_logs.*`, `attendance.record`, `materials.request` — restricted from confidential financial data)
+     - **HR / Payroll Officer**: `hr@buildflow.local` (`employees.*`, `attendance.*`, `payroll.*`)
+     - **Finance Approver / Accountant**: `accounts@buildflow.local` (`finance.*`, `billing.*`, `accounting.*`, `expenses.*`, `loans.*`, `procurement.invoices`)
+     - **Procurement Officer**: `procurement@buildflow.local` (`procurement.*`, `materials.*`, `purchase-requests.view`, `purchase-requests.convert`)
+     - **Storekeeper**: `storekeeper@buildflow.local` (`inventory.*`, `procurement.receive`, `materials.view`)
+2. **Defect Register & Remediations**:
+   - **SEC-01 (High)**: *Confidential Payroll Direct Route Access* — Added `authorizePayrollView()`, `authorizePayrollManage()`, `authorizePayrollApprove()`, and `authorizePayrollDisburse()` in `PayrollController.php`. Blocks unauthorized roles (e.g. Site Supervisors, Storekeepers) with HTTP 403.
+   - **SEC-02 (High)**: *Accounting Ledger Direct Route Access* — Added `authorizeAccounting()` in `AccountingController.php` for journals, create, store, and trial-balance. Returns HTTP 403 for non-finance users.
+   - **SEC-03 (High)**: *Client Billing Payment Concurrency & Race Condition* — Added `authorizeBilling()` and wrapped `BillingController::recordPayment` in `DB::transaction` with pessimistic row locking (`lockForUpdate()`), preventing duplicate payment recording and balance over-collection.
+   - **SEC-04 (High)**: *Loan Double-Deduction & Unauthorized Access* — Added `authorizeLoans()` and transactional verification in `LoanController::recordEmiPayment` preventing duplicate payments on already-settled installments.
+   - **DAT-05 (Medium)**: *Historical Attendance Tampering on Disbursed Payroll* — Updated `AttendanceController::storeMuster` to check against finalized/disbursed `PayrollPeriod` records and strictly block modifying attendance for locked payroll dates. Added site supervisor site-scoping check.
+   - **SEC-06 (Medium)**: *Unapproved Direct Purchase Order Creation* — Added `authorizeDirectPO()`, `authorizeGRN()`, and `authorizeSupplierInvoice()` in `ProcurementController.php` ensuring purchase orders cannot bypass the authorized procurement role.
+   - **SEC-07 (Medium)**: *Confidential Employee & Bank Details Protection* — Added `authorizeEmployeeManage()` in `EmployeeController.php`.
+   - **DAT-08 (Medium)**: *Inventory Stock Transfer Authorization* — Added `authorizeStockTransfer()` in `InventoryController.php` preventing unauthorized inventory reallocations.
+   - **SEC-09 (Low)**: *Expense Self-Approval Prevention* — Restricted automatic expense approval in `ExpenseController.php` to finance and admin roles.
+   - **UI-10 (Low)**: *Role-Gated Sidebar UI & Stitch Alignment* — Gated sidebar items in `resources/views/layouts/app.blade.php` with permission checks while preserving Stitch active styling, typography, and responsive hamburger navigation. Fixed undefined key in `purchase-requests/show.blade.php` and enhanced `StockAvailabilityService.php`.
+3. **Automated Regression Suite (`tests/Feature/RoleBasedAccessAndIntegrityAuditTest.php`)**:
+   - 7 test cases with 62 assertions covering:
+     - Unauthorized role direct access to `/payroll` returning HTTP 403.
+     - Unauthorized role direct access to `/accounting/trial-balance` returning HTTP 403.
+     - Accountant authorized access to trial balance and journals returning HTTP 200.
+     - Disbursed payroll historical muster roll modification lock (HTTP 403).
+     - Client billing overpayment and concurrent double-receipt prevention via row locking.
+     - Loan EMI double-payment prevention.
+     - Cross-company isolation on client billing records returning HTTP 404.
+   - **Total Automated Test Suite**: **68 tests, 456 assertions, 0 errors, 100% passing**.
+4. **Real Browser Automation (`tests/Browser/e2e_browser_audit.js`)**:
+   - Automated via `puppeteer-core` driving local Chrome (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`).
+   - Executed 11 end-to-end user workflows:
+     - Workflow 1: Authentication failure validation (invalid password rejected).
+     - Workflow 2: Admin login & Dashboard live metrics inspection.
+     - Workflow 3: Projects register & Site detail rendering.
+     - Workflow 4: Attendance muster roll rendering.
+     - Workflow 5: Purchase requests register & PR detail with live stock and budget impact cards.
+     - Workflow 6: Procurement PO detail & 3-way match.
+     - Workflow 7: Client billing RA bill detail & retention deduction tracking.
+     - Workflow 8: Accounting double-entry general ledger & trial balance.
+     - Workflow 9: Role-gated navigation verification for Site Supervisor & HTTP 403 verification on direct URL access to `/payroll` and `/accounting/trial-balance`.
+     - Workflow 10: Accountant login, access to financial reports, and HTTP 403 verification on approval policy modification.
+     - Workflow 11: Multi-device responsive verification at Desktop (1280x800), Tablet (768x1024), and Mobile (375x812).
+   - **Browser Audit Outcome**: **15 passed, 0 failed, 17 screenshots captured**.
+   - **Frontend Build**: Vite production compilation verified clean in 164ms.
 
-The next prioritized items on the operational roadmap:
+---
+
+## 8. Next Recommended Implementation Target
+
+With core operational workflows, multi-tier approvals, role-based access control, and browser validation complete:
 1. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.
 2. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
 3. **Subcontractor Measurement Sheets & Work Order Matching**: Subcontractor bill certification against approved site measurements.
+
 
 
 

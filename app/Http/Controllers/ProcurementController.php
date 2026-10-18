@@ -39,8 +39,40 @@ class ProcurementController extends Controller
         return view('procurement.index', compact('orders', 'suppliers', 'stats'));
     }
 
+    protected function authorizeDirectPO(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $isProcurement = $user && ($user->hasPermission('*') || $user->hasPermission('procurement.*') || in_array($roleSlug, ['owner', 'admin', 'procurement_officer']));
+        if (! $isProcurement) {
+            abort(403, 'Unauthorized. Direct purchase order creation is restricted to Procurement Officers and Administrators.');
+        }
+    }
+
+    protected function authorizeGRN(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $canReceive = $user && ($user->hasPermission('*') || $user->hasPermission('procurement.*') || $user->hasPermission('inventory.*') || in_array($roleSlug, ['owner', 'admin', 'storekeeper', 'procurement_officer']));
+        if (! $canReceive) {
+            abort(403, 'Unauthorized. Goods receipt inspection is restricted to Storekeepers and Procurement Officers.');
+        }
+    }
+
+    protected function authorizeSupplierInvoice(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $canInvoice = $user && ($user->hasPermission('*') || $user->hasPermission('procurement.*') || $user->hasPermission('finance.*') || in_array($roleSlug, ['owner', 'admin', 'accountant', 'procurement_officer']));
+        if (! $canInvoice) {
+            abort(403, 'Unauthorized. Only Finance or Procurement Officers can record commercial supplier invoices.');
+        }
+    }
+
     public function createPO(): View
     {
+        $this->authorizeDirectPO();
+
         $suppliers = Supplier::where('status', 'active')->orderBy('name')->get();
         $projects = Project::whereIn('status', ['on_track', 'at_risk', 'delayed'])->orderBy('name')->get();
         $materials = Material::where('is_active', true)->orderBy('name')->get();
@@ -50,6 +82,7 @@ class ProcurementController extends Controller
 
     public function storePO(Request $request): RedirectResponse
     {
+        $this->authorizeDirectPO();
         $validated = $request->validate([
             'supplier_id' => 'required|exists:suppliers,id',
             'project_id' => 'required|exists:projects,id',
@@ -112,6 +145,8 @@ class ProcurementController extends Controller
 
     public function createGRN(PurchaseOrder $order): View|RedirectResponse
     {
+        $this->authorizeGRN();
+
         if (in_array($order->status, ['completed', 'cancelled'])) {
             return redirect()->route('procurement.show', $order)
                 ->withErrors(['status' => 'This purchase order is already marked as ' . $order->status . ' and cannot accept further goods receipts.']);
@@ -125,6 +160,8 @@ class ProcurementController extends Controller
 
     public function storeGRN(Request $request, PurchaseOrder $order): RedirectResponse
     {
+        $this->authorizeGRN();
+
         if (in_array($order->status, ['completed', 'cancelled'])) {
             return redirect()->route('procurement.show', $order)
                 ->withErrors(['status' => 'This purchase order is already marked as ' . $order->status . '.']);
@@ -261,6 +298,8 @@ class ProcurementController extends Controller
 
     public function storeSupplierInvoice(Request $request, PurchaseOrder $order): RedirectResponse
     {
+        $this->authorizeSupplierInvoice();
+
         $validated = $request->validate([
             'invoice_number' => 'required|string|max:100',
             'invoice_date' => 'required|date',
@@ -293,6 +332,8 @@ class ProcurementController extends Controller
 
     public function supplierInvoices(Request $request): View
     {
+        $this->authorizeSupplierInvoice();
+
         $invoices = SupplierInvoice::with(['supplier', 'purchaseOrder'])
             ->latest('invoice_date')
             ->paginate(15);

@@ -66,6 +66,26 @@ class AttendanceController extends Controller
         $date = $validated['date'];
         $site = Site::findOrFail($validated['site_id']);
 
+        // 1. Scope authorization: verify user is assigned supervisor, PM, or admin
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $isAuthorized = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager']) || $site->supervisor_id === $user->id;
+        if (! $isAuthorized) {
+            abort(403, 'You are not authorized to submit muster for this site.');
+        }
+
+        // 2. Data integrity: prevent tampering with historical attendance covered by disbursed payroll
+        $isPeriodDisbursed = \App\Models\PayrollPeriod::where('status', 'disbursed')
+            ->whereDate('start_date', '<=', $date)
+            ->whereDate('end_date', '>=', $date)
+            ->exists();
+
+        if ($isPeriodDisbursed) {
+            return back()->withInput()->withErrors([
+                'date' => "Attendance for {$date} cannot be modified because the corresponding payroll period has already been finalized and disbursed.",
+            ]);
+        }
+
         foreach ($validated['attendance'] as $employeeId => $data) {
             DailyAttendance::updateOrCreate(
                 [

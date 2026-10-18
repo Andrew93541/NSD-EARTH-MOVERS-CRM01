@@ -50,11 +50,15 @@ class ExpenseController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $isAdminOrFinance = $user && ($user->hasPermission('*') || $user->hasPermission('finance.*') || in_array($roleSlug, ['owner', 'admin', 'accountant']));
+
         $validated['expense_number'] = 'EXP-' . date('Y') . '-' . strtoupper(Str::random(5));
-        $validated['status'] = 'approved';
+        $validated['status'] = $isAdminOrFinance ? 'approved' : 'pending';
         $validated['submitted_by'] = Auth::id();
-        $validated['approved_by'] = Auth::id();
-        $validated['approved_at'] = Carbon::now();
+        $validated['approved_by'] = $isAdminOrFinance ? Auth::id() : null;
+        $validated['approved_at'] = $isAdminOrFinance ? Carbon::now() : null;
 
         Expense::create($validated);
 

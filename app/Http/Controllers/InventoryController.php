@@ -44,8 +44,20 @@ class InventoryController extends Controller
         return view('inventory.ledger', compact('entries'));
     }
 
+    protected function authorizeStockTransfer(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $canTransfer = $user && ($user->hasPermission('*') || $user->hasPermission('inventory.*') || in_array($roleSlug, ['owner', 'admin', 'storekeeper', 'procurement_officer']));
+        if (! $canTransfer) {
+            abort(403, 'Unauthorized. Stock transfers are restricted to Storekeepers, Procurement Officers, and Administrators.');
+        }
+    }
+
     public function createTransfer(): View
     {
+        $this->authorizeStockTransfer();
+
         $warehouses = Warehouse::orderBy('name')->get();
         $materials = Material::orderBy('name')->get();
 
@@ -54,6 +66,7 @@ class InventoryController extends Controller
 
     public function storeTransfer(Request $request): RedirectResponse
     {
+        $this->authorizeStockTransfer();
         $validated = $request->validate([
             'from_warehouse_id' => 'required|exists:warehouses,id|different:to_warehouse_id',
             'to_warehouse_id' => 'required|exists:warehouses,id',

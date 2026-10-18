@@ -82,7 +82,7 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id,
             'name' => 'Project Manager',
             'slug' => 'project_manager',
-            'permissions' => ['projects.view', 'projects.edit', 'sites.view', 'materials.request', 'attendance.view'],
+            'permissions' => ['projects.*', 'sites.*', 'materials.request', 'attendance.view', 'attendance.muster'],
             'is_system' => true,
         ]);
 
@@ -90,7 +90,7 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id,
             'name' => 'Site Supervisor',
             'slug' => 'site_supervisor',
-            'permissions' => ['sites.view', 'daily_logs.create', 'attendance.record'],
+            'permissions' => ['sites.view', 'daily_logs.*', 'attendance.record', 'materials.request'],
             'is_system' => true,
         ]);
 
@@ -98,7 +98,31 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id,
             'name' => 'Accountant',
             'slug' => 'accountant',
-            'permissions' => ['finance.*', 'billing.*', 'accounting.*'],
+            'permissions' => ['finance.*', 'billing.*', 'accounting.*', 'expenses.*', 'loans.*', 'procurement.invoices'],
+            'is_system' => true,
+        ]);
+
+        $hrRole = Role::create([
+            'company_id' => $company->id,
+            'name' => 'HR / Payroll Officer',
+            'slug' => 'hr_officer',
+            'permissions' => ['employees.*', 'attendance.*', 'payroll.*'],
+            'is_system' => true,
+        ]);
+
+        $procurementRole = Role::create([
+            'company_id' => $company->id,
+            'name' => 'Procurement Officer',
+            'slug' => 'procurement_officer',
+            'permissions' => ['procurement.*', 'materials.*', 'purchase-requests.view', 'purchase-requests.convert'],
+            'is_system' => true,
+        ]);
+
+        $storekeeperRole = Role::create([
+            'company_id' => $company->id,
+            'name' => 'Storekeeper',
+            'slug' => 'storekeeper',
+            'permissions' => ['inventory.*', 'procurement.receive', 'materials.view'],
             'is_system' => true,
         ]);
 
@@ -127,6 +151,24 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('Password123!'),
         ]);
 
+        $hrUser = User::create([
+            'name' => 'Kavita Sharma',
+            'email' => 'hr@buildflow.local',
+            'password' => Hash::make('Password123!'),
+        ]);
+
+        $procurementUser = User::create([
+            'name' => 'Anand Joshi',
+            'email' => 'procurement@buildflow.local',
+            'password' => Hash::make('Password123!'),
+        ]);
+
+        $storekeeperUser = User::create([
+            'name' => 'Gopal Das',
+            'email' => 'storekeeper@buildflow.local',
+            'password' => Hash::make('Password123!'),
+        ]);
+
         $karan = User::create([
             'name' => 'Karan Patel',
             'email' => 'karan@buildflow.local',
@@ -138,6 +180,9 @@ class DatabaseSeeder extends Seeder
         $company->users()->attach($pmUser->id, ['role_id' => $pmRole->id, 'status' => 'active', 'is_primary' => true]);
         $company->users()->attach($siteUser->id, ['role_id' => $siteSupervisorRole->id, 'status' => 'active', 'is_primary' => true]);
         $company->users()->attach($accountant->id, ['role_id' => $accountantRole->id, 'status' => 'active', 'is_primary' => true]);
+        $company->users()->attach($hrUser->id, ['role_id' => $hrRole->id, 'status' => 'active', 'is_primary' => true]);
+        $company->users()->attach($procurementUser->id, ['role_id' => $procurementRole->id, 'status' => 'active', 'is_primary' => true]);
+        $company->users()->attach($storekeeperUser->id, ['role_id' => $storekeeperRole->id, 'status' => 'active', 'is_primary' => true]);
         $company->users()->attach($karan->id, ['role_id' => $pmRole->id, 'status' => 'active', 'is_primary' => true]);
 
         // Also give admin access to second company for testing tenant switcher

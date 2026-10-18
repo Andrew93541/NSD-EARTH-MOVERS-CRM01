@@ -15,8 +15,46 @@ use Illuminate\View\View;
 
 class PayrollController extends Controller
 {
+    protected function authorizePayrollView(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('payroll.*') && ! $user->hasPermission('payroll.view') && ! in_array($roleSlug, ['owner', 'admin', 'hr_officer', 'accountant']))) {
+            abort(403, 'Unauthorized access to payroll and compensation records.');
+        }
+    }
+
+    protected function authorizePayrollManage(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('payroll.*') && ! in_array($roleSlug, ['owner', 'admin', 'hr_officer']))) {
+            abort(403, 'Unauthorized. Only HR Officers or Administrators can generate or modify payroll batches.');
+        }
+    }
+
+    protected function authorizePayrollApprove(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('payroll.*') && ! $user->hasPermission('payroll.approve') && ! in_array($roleSlug, ['owner', 'admin', 'hr_officer']))) {
+            abort(403, 'Unauthorized to approve payroll batches.');
+        }
+    }
+
+    protected function authorizePayrollDisburse(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('payroll.*') && ! $user->hasPermission('payroll.disburse') && ! in_array($roleSlug, ['owner', 'admin', 'accountant']))) {
+            abort(403, 'Unauthorized to disburse payroll. Finance authorization required.');
+        }
+    }
+
     public function index(Request $request): View
     {
+        $this->authorizePayrollView();
+
         $periods = PayrollPeriod::with(['approver', 'records.employee'])
             ->latest('start_date')
             ->paginate(10);
@@ -33,6 +71,8 @@ class PayrollController extends Controller
 
     public function create(): View
     {
+        $this->authorizePayrollManage();
+
         $defaultStart = Carbon::now()->startOfMonth()->toDateString();
         $defaultEnd = Carbon::now()->endOfMonth()->toDateString();
         $defaultTitle = Carbon::now()->format('F Y') . ' Muster Payroll';
@@ -42,6 +82,7 @@ class PayrollController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        $this->authorizePayrollManage();
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'start_date' => 'required|date',
@@ -144,6 +185,8 @@ class PayrollController extends Controller
 
     public function show(PayrollPeriod $period): View
     {
+        $this->authorizePayrollView();
+
         $period->load(['approver', 'records.employee.assignedSite']);
 
         return view('payroll.show', compact('period'));
@@ -151,6 +194,8 @@ class PayrollController extends Controller
 
     public function approve(PayrollPeriod $period): RedirectResponse
     {
+        $this->authorizePayrollApprove();
+
         if ($period->status === 'disbursed') {
             return back()->withErrors(['status' => 'Disbursed payroll periods cannot be modified.']);
         }
@@ -169,6 +214,8 @@ class PayrollController extends Controller
 
     public function disburse(PayrollPeriod $period): RedirectResponse
     {
+        $this->authorizePayrollDisburse();
+
         if ($period->status !== 'approved') {
             return back()->withErrors(['status' => 'Payroll must be approved before disbursement.']);
         }
@@ -182,6 +229,8 @@ class PayrollController extends Controller
 
     public function payslip(PayrollPeriod $period, PayrollRecord $record): View
     {
+        $this->authorizePayrollView();
+
         $record->load(['employee.assignedSite', 'period']);
 
         return view('payroll.payslip', compact('period', 'record'));

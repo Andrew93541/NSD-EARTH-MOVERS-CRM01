@@ -16,8 +16,19 @@ use Illuminate\View\View;
 
 class AccountingController extends Controller
 {
+    protected function authorizeAccounting(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('accounting.*') && ! $user->hasPermission('finance.*') && ! in_array($roleSlug, ['owner', 'admin', 'accountant']))) {
+            abort(403, 'Unauthorized access to double-entry ledger and financial reports.');
+        }
+    }
+
     public function index(): View
     {
+        $this->authorizeAccounting();
+
         $accounts = Account::orderBy('code')->get();
 
         $stats = [
@@ -32,6 +43,8 @@ class AccountingController extends Controller
 
     public function journalEntries(): View
     {
+        $this->authorizeAccounting();
+
         $entries = JournalEntry::with(['lines.account', 'creator'])
             ->latest('entry_date')
             ->paginate(15);
@@ -41,6 +54,8 @@ class AccountingController extends Controller
 
     public function createJournal(): View
     {
+        $this->authorizeAccounting();
+
         $accounts = Account::where('is_active', true)->orderBy('code')->get();
         $projects = Project::orderBy('name')->get();
 
@@ -49,6 +64,8 @@ class AccountingController extends Controller
 
     public function storeJournal(Request $request): RedirectResponse
     {
+        $this->authorizeAccounting();
+
         $validated = $request->validate([
             'entry_date' => 'required|date',
             'narration' => 'required|string',
@@ -108,6 +125,8 @@ class AccountingController extends Controller
 
     public function trialBalance(): View
     {
+        $this->authorizeAccounting();
+
         $accounts = Account::with(['journalLines'])->orderBy('code')->get();
 
         $rows = [];

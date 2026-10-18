@@ -140,6 +140,9 @@ class StockAvailabilityService
             'status' => $status,
             'status_label' => $statusLabel,
             'status_badge_class' => $statusBadgeClass,
+            'item' => $item,
+            'material' => $material,
+            'remaining_to_procure' => $remainingQty,
             'can_fulfill_from_stock' => ($targetStock >= $remainingQty && $remainingQty > 0),
             'can_transfer_from_other_warehouse' => ($targetStock < $remainingQty && $otherWarehousesStock > 0),
             'transfer_available' => ($targetStock < $remainingQty && $otherWarehousesStock > 0),
@@ -181,6 +184,13 @@ class StockAvailabilityService
             $overallStatus = 'partial_stock_available';
         }
 
+        $totalShortfallUnits = array_sum(array_column($itemsAnalysis, 'shortfall'));
+        $overallStatusLabel = match ($overallStatus) {
+            'all_in_stock' => 'Full Yard Stock Available (No Procurement Needed)',
+            'partial_stock_available' => 'Partial Yard Stock / Inter-Yard Transfer Available',
+            default => 'External Purchase Order Required',
+        };
+
         return [
             'request_id' => $request->id,
             'warehouse_id' => $request->warehouse_id,
@@ -190,8 +200,11 @@ class StockAvailabilityService
             'transfer_available_items' => $transferAvailableItems,
             'purchase_required_items' => $purchaseRequiredItems,
             'overall_status' => $overallStatus,
+            'overall_status_label' => $overallStatusLabel,
+            'total_shortfall_units' => $totalShortfallUnits,
             'has_transfer_recommendation' => ($transferAvailableItems > 0 || $fullyInStockItems > 0),
             'items' => $itemsAnalysis,
+            'line_analyses' => $itemsAnalysis,
         ];
     }
 }

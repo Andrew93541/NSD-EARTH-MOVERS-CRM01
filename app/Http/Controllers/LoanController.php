@@ -7,12 +7,25 @@ use App\Models\LoanEmiSchedule;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class LoanController extends Controller
 {
+    protected function authorizeLoans(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user || (! $user->hasPermission('*') && ! $user->hasPermission('loans.*') && ! $user->hasPermission('finance.*') && ! in_array($roleSlug, ['owner', 'admin', 'accountant']))) {
+            abort(403, 'Unauthorized access to equipment loans and debt financing.');
+        }
+    }
+
     public function index(Request $request): View
     {
+        $this->authorizeLoans();
+
         $loans = Loan::withCount(['emiSchedules as pending_emis_count' => function ($q) {
             $q->where('status', 'pending');
         }])->latest()->paginate(10);
@@ -25,11 +38,15 @@ class LoanController extends Controller
 
     public function create(): View
     {
+        $this->authorizeLoans();
+
         return view('loans.create');
     }
 
     public function store(Request $request): RedirectResponse
     {
+        $this->authorizeLoans();
+
         $validated = $request->validate([
             'loan_account_number' => 'required|string|max:50',
             'lender_name' => 'required|string|max:150',
@@ -91,6 +108,8 @@ class LoanController extends Controller
 
     public function show(Loan $loan): View
     {
+        $this->authorizeLoans();
+
         $loan->load('emiSchedules');
 
         return view('loans.show', compact('loan'));
@@ -98,21 +117,31 @@ class LoanController extends Controller
 
     public function recordEmiPayment(Request $request, LoanEmiSchedule $schedule): RedirectResponse
     {
+        $this->authorizeLoans();
+
         $validated = $request->validate([
             'payment_ref' => 'required|string|max:100',
             'paid_date' => 'required|date',
         ]);
 
-        $schedule->update([
-            'status' => 'paid',
-            'paid_date' => $validated['paid_date'],
-            'payment_ref' => $validated['payment_ref'],
-        ]);
+        return DB::transaction(function () use ($validated, $schedule) {
+            $lockedSchedule = LoanEmiSchedule::where('id', $schedule->id)->lockForUpdate()->firstOrFail();
 
-        $loan = $schedule->loan;
-        $newOutstanding = max(0, $loan->outstanding_principal - $schedule->principal_component);
-        $loan->update(['outstanding_principal' => $newOutstanding]);
+            if ($lockedSchedule->status === 'paid') {
+                return back()->withErrors(['status' => "Installment #{$lockedSchedule->installment_number} has already been paid and cannot be double-processed."]);
+            }
 
-        return back()->with('success', "Installment #{$schedule->installment_number} marked as paid.");
+            $lockedSchedule->update([
+                'status' => 'paid',
+                'paid_date' => $validated['paid_date'],
+                'payment_ref' => $validated['payment_ref'],
+            ]);
+
+            $loan = Loan::where('id', $lockedSchedule->loan_id)->lockForUpdate()->firstOrFail();
+            $newOutstanding = max(0, round((float) $loan->outstanding_principal - (float) $lockedSchedule->principal_component, 2));
+            $loan->update(['outstanding_principal' => $newOutstanding]);
+
+            return back()->with('success', "Installment #{$lockedSchedule->installment_number} marked as paid.");
+        });
     }
 }

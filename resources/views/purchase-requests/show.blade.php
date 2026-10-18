@@ -261,20 +261,20 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-50">
-                    @foreach ($stockAnalysis['line_analyses'] as $line)
+                    @foreach (($stockAnalysis['line_analyses'] ?? $stockAnalysis['items'] ?? []) as $line)
                         @php
-                            $it = $line['item'];
-                            $material = $line['material'];
+                            $it = $line['item'] ?? null;
+                            $material = $line['material'] ?? null;
                         @endphp
                         <tr class="hover:bg-gray-50/50 transition">
                             <td class="py-3 px-2">
-                                <strong class="text-gray-900 block font-bold">{{ $material->name ?? 'Material' }}</strong>
+                                <strong class="text-gray-900 block font-bold">{{ $material->name ?? $line['material_name'] ?? 'Material' }}</strong>
                                 <div class="flex items-center gap-2 mt-0.5 text-[10px] text-gray-400">
-                                    <span class="font-mono">{{ $material->code ?? '—' }}</span>
+                                    <span class="font-mono">{{ $material->code ?? $line['material_code'] ?? '—' }}</span>
                                     <span>•</span>
                                     <span>{{ $it->specifications ?? 'Standard Spec' }}</span>
                                     <span>•</span>
-                                    <span class="font-mono">Est: ₹{{ number_format($it->estimated_rate, 2) }}/{{ $line['uom'] }}</span>
+                                    <span class="font-mono">Est: ₹{{ number_format($it->estimated_rate ?? 0, 2) }}/{{ $line['uom'] ?? 'Units' }}</span>
                                 </div>
                                 @if ($line['transfer_available'])
                                     <div class="mt-1 text-[11px] text-blue-700 bg-blue-50/80 px-2 py-0.5 rounded border border-blue-200 inline-flex items-center gap-1">

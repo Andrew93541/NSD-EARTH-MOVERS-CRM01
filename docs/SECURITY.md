@@ -22,8 +22,30 @@
 
 ---
 
-## 4. Input Sanitization & Attack Mitigation
-- **SQL Injection**: Parameterized PDO bindings via Eloquent ORM. No raw SQL concatenations.
-- **Cross-Site Scripting (XSS)**: Blade automatic output escaping (`{{ ... }}`) for all user inputs.
-- **CSRF**: Automatic CSRF token verification across all non-idempotent HTTP methods (`POST`, `PUT`, `PATCH`, `DELETE`).
-- **File Upload Hardening**: Strict MIME-type validation, size limits (max 10MB), and private disk storage preventing direct execution of user-submitted scripts.
+## 5. Role-Based Authorization Matrix & Direct Route Guards
+
+BuildFlow enforces server-side role and permission verification across all controllers. Hiding UI elements is never treated as a security boundary.
+
+| Role | Permitted Areas | Confidential / Prohibited Areas | Direct Route Guards |
+|---|---|---|---|
+| **Company Owner / Admin** | All modules, approvals, company settings, policies, override decisions | None | Unrestricted (`*` permission) |
+| **Project Manager** | Assigned projects, sites, daily logs, material requests, attendance muster | Company bank accounts, financial journals, payroll compensation, approval policies | 403 on `/payroll`, `/accounting`, `/finance/policies` |
+| **Site Supervisor** | Assigned sites, daily site logs, muster roll attendance recording, material requests | Financial accounting, client billing, company payroll, employee bank details, purchase order creation | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/procurement/orders/create` |
+| **HR / Payroll Officer** | Employee profiles, shifts, biometric attendance audit, payroll batch preparation, payslips | Financial accounting, client billing, procurement PO approvals | 403 on `/accounting/*`, `/billing/*`, `/procurement/policies` |
+| **Finance Approver / Accountant** | Financial journals, trial balance, client billing & receipts, supplier invoice verification, loan EMI schedules | Direct procurement creation, site master editing, approval policy configuration | 403 on `/procurement/policies`, `/procurement/orders/create` |
+| **Procurement Officer** | Purchase requests review, PO conversion, supplier management, price quotes | Financial accounting journals, payroll records, client billing | 403 on `/payroll`, `/accounting/*`, `/billing/*` |
+| **Storekeeper** | Goods receipt notes (GRN), quality inspection, warehouse stock transfers, inventory ledgers | Financial journals, payroll, client billing, PO issuance | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/procurement/orders/create` |
+
+---
+
+## 6. Concurrency Safeguards & Immutable Historical State
+
+1. **Pessimistic Row Locking (`lockForUpdate()`)**:
+   - Client billing payment recording acquires row-level locks on `client_invoices` within `DB::transaction`, preventing double-receipt and overpayment race conditions.
+   - Purchase request conversion acquires row locks on `purchase_requests` and `purchase_request_items` preventing duplicate PO issuance from rapid concurrent submissions.
+   - Loan EMI repayments lock installment records and verify `status !== 'paid'` inside the transaction.
+2. **Historical Attendance Protection**:
+   - Daily attendance muster roll records cannot be updated or created for dates falling within an `approved` or `disbursed` `PayrollPeriod`. Attempts throw HTTP 403.
+3. **Double-Entry Journal & Stock Ledger Immutability**:
+   - Posted general ledger journal lines and stock ledger movement entries are immutable. Reversals must be executed via distinct counter-balancing transactions.
+

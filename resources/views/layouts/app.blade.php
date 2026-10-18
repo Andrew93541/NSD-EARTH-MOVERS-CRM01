@@ -28,6 +28,23 @@
                 </div>
             </div>
 
+            @php
+                $u = auth()->user();
+                $canProjects = $u && ($u->hasPermission('*') || $u->hasPermission('projects.*') || $u->hasPermission('projects.view'));
+                $canSites = $u && ($u->hasPermission('*') || $u->hasPermission('sites.*') || $u->hasPermission('sites.view'));
+                $canInventory = $u && ($u->hasPermission('*') || $u->hasPermission('inventory.*') || $u->hasPermission('materials.*') || $u->hasPermission('materials.request'));
+                $canMuster = $u && ($u->hasPermission('*') || $u->hasPermission('attendance.*') || $u->hasPermission('attendance.record') || $u->hasPermission('attendance.muster'));
+                $canEmployees = $u && ($u->hasPermission('*') || $u->hasPermission('employees.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'hr_officer']));
+                $canPayroll = $u && ($u->hasPermission('*') || $u->hasPermission('payroll.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'hr_officer', 'accountant']));
+                
+                $canBilling = $u && ($u->hasPermission('*') || $u->hasPermission('billing.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+                $canPR = $u && ($u->hasPermission('*') || $u->hasPermission('materials.request') || $u->hasPermission('procurement.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'procurement_officer']));
+                $canProcurement = $u && ($u->hasPermission('*') || $u->hasPermission('procurement.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'procurement_officer', 'storekeeper']));
+                $canExpenses = $u && ($u->hasPermission('*') || $u->hasPermission('expenses.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant', 'project_manager']));
+                $canLoans = $u && ($u->hasPermission('*') || $u->hasPermission('loans.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+                $canAccounting = $u && ($u->hasPermission('*') || $u->hasPermission('accounting.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+            @endphp
+
             <!-- Navigation Links -->
             <nav class="space-y-5">
                 <div>
@@ -38,72 +55,98 @@
                             <span>Dashboard</span>
                         </a>
 
+                        @if($canProjects)
                         <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('projects.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
                             <span>Projects</span>
                         </a>
+                        @endif
 
+                        @if($canSites)
                         <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('sites.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                             <span>Site Operations</span>
                         </a>
+                        @endif
 
+                        @if($canInventory)
                         <a href="{{ route('inventory.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('inventory.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                             <span>Materials & Stock</span>
                         </a>
+                        @endif
 
+                        @if($canMuster)
                         <a href="{{ route('attendance.muster') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('attendance.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                             <span>Labor Muster Roll</span>
                         </a>
+                        @endif
 
+                        @if($canEmployees)
                         <a href="{{ route('employees.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('employees.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                             <span>Staff & Operators</span>
                         </a>
+                        @endif
 
+                        @if($canPayroll)
                         <a href="{{ route('payroll.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('payroll.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 8h6m-5 4h5m-5 4h5M7 4h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
                             <span>Payroll & Wages</span>
                         </a>
+                        @endif
                     </div>
                 </div>
 
+                @if($canBilling || $canPR || $canProcurement || $canExpenses || $canLoans || $canAccounting)
                 <div>
                     <span class="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">MANAGEMENT & FINANCE</span>
                     <div class="space-y-1">
+                        @if($canBilling)
                         <a href="{{ route('billing.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('billing.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"/></svg>
                             <span>Client RA Billing</span>
                         </a>
+                        @endif
 
+                        @if($canPR)
                         <a href="{{ route('purchase-requests.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('purchase-requests.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             <span>Material Indents (PR)</span>
                         </a>
+                        @endif
 
+                        @if($canProcurement)
                         <a href="{{ route('procurement.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('procurement.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
                             <span>Procurement & POs</span>
                         </a>
+                        @endif
 
+                        @if($canExpenses)
                         <a href="{{ route('expenses.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('expenses.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                             <span>Site Expenses</span>
                         </a>
+                        @endif
 
+                        @if($canLoans)
                         <a href="{{ route('loans.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('loans.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <span>Equipment Loans & EMI</span>
                         </a>
+                        @endif
 
+                        @if($canAccounting)
                         <a href="{{ route('accounting.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('accounting.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             <span>Double-Entry Ledger</span>
                         </a>
+                        @endif
                     </div>
                 </div>
+                @endif
             </nav>
         </div>
 
