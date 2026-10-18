@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\Client;
 use App\Models\ClientInvoice;
 use App\Models\InvoicePayment;
@@ -99,6 +100,18 @@ class BillingController extends Controller
             'approved_at' => Carbon::now(),
         ]);
 
+        if ($invoice->project?->manager_id) {
+            AppNotification::create([
+                'company_id' => $invoice->project->company_id,
+                'user_id' => $invoice->project->manager_id,
+                'title' => 'Client RA Invoice Generated',
+                'message' => "RA Bill {$invoice->invoice_number} generated for project {$invoice->project->name}.",
+                'type' => 'info',
+                'action_url' => route('billing.show', $invoice),
+                'is_read' => false,
+            ]);
+        }
+
         return redirect()->route('billing.show', $invoice)->with('success', "RA Bill {$invoice->invoice_number} generated successfully.");
     }
 
@@ -153,6 +166,18 @@ class BillingController extends Controller
                 'paid_amount' => $newPaid,
                 'status' => $newStatus,
             ]);
+
+            if ($lockedInvoice->created_by) {
+                AppNotification::create([
+                    'company_id' => $lockedInvoice->project?->company_id ?? Auth::user()->currentCompany()?->id,
+                    'user_id' => $lockedInvoice->created_by,
+                    'title' => 'Client Payment Recorded',
+                    'message' => "Payment recorded for RA Bill {$lockedInvoice->invoice_number}.",
+                    'type' => 'success',
+                    'action_url' => route('billing.show', $lockedInvoice),
+                    'is_read' => false,
+                ]);
+            }
 
             return redirect()->route('billing.show', $lockedInvoice)->with('success', 'Client payment receipt recorded and balance updated.');
         });

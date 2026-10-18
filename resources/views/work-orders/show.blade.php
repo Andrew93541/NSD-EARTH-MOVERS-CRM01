@@ -308,6 +308,19 @@
             </div>
         </div>
     </div>
+
+    <!-- Subcontractor Work Order Agreements & Annexures -->
+    <x-document-manager 
+        :record="$workOrder" 
+        type="work_order" 
+        title="Subcontractor Work Order Agreements & Technical Annexures"
+        :categories="[
+            'contract' => 'Signed Work Order Contract Agreement',
+            'drawing' => 'Construction Scope Drawings',
+            'specification' => 'Schedule of Rates & BOQ Annexure',
+            'general' => 'General Work Order Addendum',
+        ]"
+    />
 </div>
 
 <!-- Modal for Controlled Work Order Variation -->

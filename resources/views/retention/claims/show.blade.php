@@ -279,6 +279,20 @@
             </table>
         </div>
     </div>
+
+    <!-- Supporting Handover Protocols & Defect Liability Certificates -->
+    <x-document-manager 
+        :record="$claim" 
+        type="retention_claim" 
+        title="Defect Liability Certificates & Release Evidence"
+        :categories="[
+            'completion_certificate' => 'Defects Liability Clearance Certificate (DLC)',
+            'measurement_sheet' => 'Final Reconciled Joint Measurement Sheet',
+            'contract' => 'Formal Retention Release Claim / Indemnity Undertaking',
+            'voucher_support' => 'Client Bank Remittance / Advice Copy',
+            'general' => 'General Retention Correspondence',
+        ]"
+    />
 </div>
 
 <!-- Modal: Approve Claim -->

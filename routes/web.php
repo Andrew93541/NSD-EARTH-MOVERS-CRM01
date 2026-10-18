@@ -5,6 +5,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\FixedAssetController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\MeasurementBookController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProcurementApprovalPolicyController;
 use App\Http\Controllers\ProcurementController;
@@ -20,19 +22,23 @@ use App\Http\Controllers\PurchaseRequestController;
 use App\Http\Controllers\RetentionController;
 use App\Http\Controllers\SiteOperationController;
 use App\Http\Controllers\SubcontractorBillController;
+use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\SubcontractorController;
 use App\Http\Controllers\SubcontractorWorkOrderController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
+// Production Health Check (Infrastructure & Monitoring)
+Route::get('/health', [HealthCheckController::class, 'check'])->name('health')->middleware('throttle:60,1');
+
 // Guest Auth Routes
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
     Route::get('/forgot-password', [AuthController::class, 'showForgotPassword'])->name('password.request');
-    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email');
+    Route::post('/forgot-password', [AuthController::class, 'sendResetLink'])->name('password.email')->middleware('throttle:3,1');
     Route::get('/reset-password/{token}', [AuthController::class, 'showResetPassword'])->name('password.reset');
-    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update');
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.update')->middleware('throttle:5,1');
 });
 
 // Logout
@@ -245,4 +251,25 @@ Route::middleware(['auth'])->group(function () {
 
     // Global Search
     Route::get('/search', [GlobalSearchController::class, 'search'])->name('search');
+
+    // Notification Centre & Real-Time Sync Endpoints
+    Route::prefix('notifications')->name('notifications.')->group(function () {
+        Route::get('/', [NotificationController::class, 'index'])->name('index');
+        Route::get('/feed', [NotificationController::class, 'feed'])->name('feed');
+        Route::patch('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('read');
+        Route::post('/{notification}/read', [NotificationController::class, 'markAsRead'])->name('read.post');
+        Route::post('/mark-all-read', [NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
+    });
+
+    // Document Centre & File Management
+    Route::prefix('documents')->name('documents.')->group(function () {
+        Route::get('/', [DocumentController::class, 'index'])->name('index');
+        Route::post('/upload', [DocumentController::class, 'store'])->name('store')->middleware('throttle:30,1');
+        Route::get('/{document}/preview', [DocumentController::class, 'preview'])->name('preview')->middleware('throttle:60,1');
+        Route::get('/{document}/download', [DocumentController::class, 'download'])->name('download')->middleware('throttle:60,1');
+        Route::post('/{document}/replace', [DocumentController::class, 'replace'])->name('replace')->middleware('throttle:30,1');
+        Route::delete('/{document}', [DocumentController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::get('/api/notifications/unread-count', [NotificationController::class, 'feed'])->name('api.notifications.unread-count');
 });

@@ -92,5 +92,19 @@
             </div>
         @endif
     </div>
+
+    <!-- Client RA Bill Supporting Documents & Measurement Sheets -->
+    <x-document-manager 
+        :record="$invoice" 
+        type="client_invoice" 
+        title="Joint Measurement Sheets & Certified RA Bill Evidence"
+        :categories="[
+            'measurement_sheet' => 'Joint Measurement Sheet (JMR)',
+            'completion_certificate' => 'Site Engineer Milestone Certification',
+            'supplier_invoice' => 'Signed & Stamped Client Invoice Copy',
+            'voucher_support' => 'Client Bank Remittance / UTR Advice',
+            'general' => 'General Billing Attachment',
+        ]"
+    />
 </div>
 @endsection

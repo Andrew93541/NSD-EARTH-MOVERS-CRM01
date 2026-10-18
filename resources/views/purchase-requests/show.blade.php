@@ -425,6 +425,19 @@
         </div>
     @endif
 
+    <!-- Supporting Quotations & Technical Specs -->
+    <x-document-manager 
+        :record="$request" 
+        type="purchase_request" 
+        title="Quotation Comparison & Requisition Justification"
+        :categories="[
+            'quotation' => 'Supplier Quotation / Rate Comparison',
+            'specification' => 'Technical Material Specifications / TDS',
+            'approval_note' => 'Site Indent Memo / Justification Note',
+            'general' => 'General Requisition Document',
+        ]"
+    />
+
     <!-- APPROVE MODAL -->
     <div id="approve-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900/50 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">

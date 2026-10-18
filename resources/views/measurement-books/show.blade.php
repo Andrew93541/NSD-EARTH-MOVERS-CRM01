@@ -193,6 +193,19 @@
             </div>
         </div>
     </div>
+
+    <!-- Field Survey Sheets, Cross-Sections & Inspection Photos -->
+    <x-document-manager 
+        :record="$measurementBook" 
+        type="measurement_book" 
+        title="Field Survey Sheets, Level Profiles & Chainage Photos"
+        :categories="[
+            'measurement_sheet' => 'Field Survey Level Sheet',
+            'inspection_photo' => 'Site Progress Photo at Chainage',
+            'drawing' => 'Cross-Section & Profile Sketch',
+            'general' => 'Surveyor Field Remarks Memo',
+        ]"
+    />
 </div>
 
 <!-- Modal: Reject Measurement -->

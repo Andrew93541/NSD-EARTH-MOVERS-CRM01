@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\AttendancePunch;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
@@ -103,6 +104,19 @@ class AttendanceController extends Controller
                     'overtime_approved_by' => Auth::id(),
                 ]
             );
+        }
+
+        $pmId = $site->project?->manager_id;
+        if ($pmId && (int) $pmId !== (int) Auth::id()) {
+            AppNotification::create([
+                'company_id' => $site->company_id,
+                'user_id' => $pmId,
+                'title' => 'Muster Roll Submitted',
+                'message' => "Daily attendance for {$site->name} on " . Carbon::parse($date)->format('d M Y') . " submitted by " . Auth::user()->name . ".",
+                'type' => 'info',
+                'action_url' => route('attendance.muster', ['site_id' => $site->id, 'date' => $date]),
+                'is_read' => false,
+            ]);
         }
 
         return redirect()->route('attendance.muster', ['site_id' => $site->id, 'date' => $date])

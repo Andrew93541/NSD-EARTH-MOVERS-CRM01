@@ -26,14 +26,14 @@ class DashboardController extends Controller
             SupplierInvoice::where('status', 'pending_approval')->count();
 
         // Calculate Receivables (Sum of balance due on client invoices)
-        $totalReceivables = ClientInvoice::whereIn('status', ['submitted', 'approved', 'partially_paid'])
+        $totalReceivables = (float) (ClientInvoice::whereIn('status', ['submitted', 'approved', 'partially_paid'])
             ->selectRaw('SUM(total_amount - paid_amount) as total')
-            ->value('total') ?? 4520000.00;
+            ->value('total') ?? 0.00);
 
         // Calculate Payables (Sum of balance due on supplier bills)
-        $totalPayables = SupplierInvoice::whereIn('status', ['pending_approval', 'approved', 'partially_paid'])
+        $totalPayables = (float) (SupplierInvoice::whereIn('status', ['pending_approval', 'approved', 'partially_paid'])
             ->selectRaw('SUM(total_amount - paid_amount) as total')
-            ->value('total') ?? 2596000.00;
+            ->value('total') ?? 0.00);
 
         // Recent Projects query
         $projects = Project::with(['client', 'manager'])

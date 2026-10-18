@@ -8,19 +8,19 @@
 
 ## 1. Executive Summary & Environment Assessment
 
-A non-destructive architectural and technical audit was conducted on the existing construction management platform. The application is a monolithic Laravel 11/12 application running on PHP 8.5.11, MySQL 26.7.0 / 8+, and Blade with Tailwind CSS and Alpine.js.
+A non-destructive architectural and technical audit was conducted on the existing construction management platform. The application is a monolithic Laravel application running on PHP 8.5.11 (installed: Laravel 13.37.0), MySQL 26.7.0 / 8+, and Blade with Tailwind CSS and Alpine.js.
 
 ### Verified Environment & Stack:
 - **PHP Version**: 8.5.11 (Homebrew cli)
 - **Composer**: 2.10.3
 - **Database Server**: MySQL 26.7.0 (Homebrew service active on port 3306)
 - **Databases**: `buildflow_crm` (Primary), `buildflow_crm_test` (Automated Test Isolation)
-- **Asset Pipeline**: Vite 8.3.4 + Tailwind CSS 4 + Alpine.js 3.17.4 + Chart.js 4.5.1 (Production build verified, 98.62 kB CSS / 256.83 kB JS)
-- **Test Suite Status**: 123 PHPUnit tests, 795 assertions, 0 errors, 100% passing
+- **Asset Pipeline**: Vite 8.3.4 + Tailwind CSS 4 + Alpine.js 3.17.4 + Chart.js 4.5.1 (Production build verified, 110.97 kB CSS / 352.54 kB JS)
+- **Test Suite Status**: 151 PHPUnit tests, 943 assertions, 0 errors, 100% passing
 
 ---
 
-## 2. Six-Phase Roadmap Status Audit
+## 2. Eleven-Phase Roadmap Status Audit
 
 | Phase | Module Scope | Status | Notes & Verification |
 |---|---|:---:|---|
@@ -29,8 +29,12 @@ A non-destructive architectural and technical audit was conducted on the existin
 | **Phase 3** | Workforce & Payroll (Salaries, Wages, Overtime, Payroll Batch Generation, Approvals, Payslips) | **Verified Working** | Attendance-backed deterministic payroll calculation, HR/supervisor approval state machine, disbursement locks, printable payslip certificates. |
 | **Phase 4** | Suppliers, Purchasing & Inventory (Material Indents, PM Approval, PO Conversion, GRN, Invoices, Stock Ledger) | **Verified Working** | Site material requests, PM approval workflow with segregation of duties, partial/full PO conversion, GRN quality inspection, and 3-way matching. |
 | **Phase 5** | Project Finance & Commercials (RA Billing, GST, Retention, Partial Payments, Expenses) | **Verified Working** | Progress RA billing with 9% CGST, 9% SGST, retention deductions, partial payment tracking, overpayment rejection, operational expenses. |
-| **Phase 6** | Accounting, Integrations & Reports (Double-Entry Ledger, Trial Balance, Loans/EMI, Asset Depreciation, Reverb) | **Verified Working** | Chart of accounts, balanced journal entries (`bccomp`), Trial Balance report, equipment finance with amortized EMI schedules, automatic double-entry journal postings (Debit 2010 / Debit 5020 / Credit 1010), fixed asset register, SLM/WDV depreciation engine with pro-rata scaling, and non-cash GL depreciation postings (Debit 5030 / Credit 1520). |
+| **Phase 6** | Accounting, Integrations & Reports (Double-Entry Ledger, Trial Balance, Loans/EMI, Asset Depreciation) | **Verified Working** | Chart of accounts, balanced journal entries (`bccomp`), Trial Balance report, equipment finance with amortized EMI schedules, automatic double-entry journal postings (Debit 2010 / Debit 5020 / Credit 1010), fixed asset register, SLM/WDV depreciation engine with pro-rata scaling, and non-cash GL depreciation postings (Debit 5030 / Credit 1520). |
 | **Phase 7** | Subcontractor Work Orders, Measurement Book & Bill Certification (Vendor Master, WOs, MB LBD Calculations, 3-Way Match RA Bills, GL Postings) | **Verified Working** | Itemized BOQ work orders, digital MB ($L \times B \times D$ formula, review/approval/rejection), 3-way matching RA billing, retention (2030) and TDS (2040) deductions, balanced GL vouchers (Dr 5040, Dr 1030 / Cr 2030, Cr 2040, Cr 2020), controlled reversals, and zero double counting in project budget actuals vs commitments. |
+| **Phase 8** | Integration, QA, Role-Based Access Audit & Browser Verification | **Verified Working** | Global search across projects, materials, invoices, and workforce. End-to-end security matrix audit across all 8 user roles. Journal immutability locks and zero balance discrepancies. |
+| **Phase 9** | Secure Real-Time Notifications (Laravel Reverb & Echo) | **Verified Working** | First-party WebSocket server on Reverb, `$afterCommit = true` transaction safety, private multi-tenant channels, Google Stitch notification bell, live pulse animation, full Notification Centre. |
+| **Phase 10** | Secure, System-Wide Document & File Upload Management | **Verified Working** | Central Document Centre, `<x-document-manager>` embedded across 16 module views, private disk storage (`storage/app/private`), UUID storage filenames, `finfo` MIME inspection, ClamAV scanner interface, non-destructive versioning, and statutory immutability locks on posted/certified records. |
+| **Phase 11** | Production Readiness, Security Hardening & Go-Live Audit | **Verified Working** | Isolated disaster recovery restore test (100% row/table/financial parity), private disk `serve => false` route elimination, ClamAV fail-closed mode, active membership revocation enforcement, multi-tenant search operator fix, employee salary masking, rate limiting, and `/health` operational monitor. |
 
 ---
 
@@ -62,7 +66,7 @@ A non-destructive architectural and technical audit was conducted on the existin
 ## 4. Evaluation of Real-Time Updates (Laravel Reverb & Echo)
 
 As mandated by Section 8 of the project rules:
-1. **Compatibility**: Laravel Reverb is a first-party, high-performance WebSocket server for Laravel 11/12. It runs directly as a PHP CLI process and requires no external Node.js server or commercial Pusher account.
+1. **Compatibility**: Laravel Reverb is a first-party, high-performance WebSocket server for Laravel (11+). It runs directly as a PHP CLI process and requires no external Node.js server or commercial Pusher account.
 2. **Resource & Infrastructure**: Can run as a daemon supervisor process locally or on a standard Linux VPS alongside MySQL.
 3. **Event Scoping**:
    - Channels must be private and company-scoped (e.g. `private-company.{companyId}`).
@@ -374,13 +378,250 @@ An in-depth audit of the subcontractor billing arithmetic and double-entry ledge
    - **Subsystem Isolation**: Reversals for subsystem-managed transactions (subcontractor bills, loan EMIs, asset depreciation) are guarded and routed to preserve operational synchronization.
    - **Seeder Integrity**: Updated `DatabaseSeeder.php` to generate the complete subcontractor billing workflow through `SubcontractorBillingService::certifyBill`, reproducing balanced vouchers cleanly without manual database intervention.
 
+### 10.5. Secure Real-Time Notifications Audit (Laravel Reverb & Echo)
+An end-to-end architectural and security audit of the real-time notification subsystem was conducted:
+1. **Server-Side Broadcasting Infrastructure**:
+   - Installed and configured `laravel/reverb` (v1.12.0) with local daemon on `0.0.0.0:8080`.
+   - Private channel authorization implemented in `routes/channels.php` enforcing multi-tenant isolation, user identity matching, and role-based permissions (`App.Models.User.{id}`, `company.{companyId}`, `company.{companyId}.role.{roleSlug}`, `project.{projectId}`, `site.{siteId}`).
+   - Cross-company channel access is strictly denied (403 Forbidden).
+2. **Transaction-Safe Broadcasting (`$afterCommit = true`)**:
+   - `NotificationDispatched` implements `ShouldBroadcastNow` with `$afterCommit = true`.
+   - `NotificationService::broadcastNotification()` wraps dispatching in `DB::afterCommit(...)` when an active transaction is underway, preventing ghost broadcasts during transaction rollbacks.
+   - Broadcaster failures are intercepted with try/catch handlers, logging warnings while guaranteeing that standard HTTP operations proceed without disruption.
+3. **Sensitive Data Protection**:
+   - Broadcast payloads contain only minimal non-sensitive metadata (notification ID, company ID, user ID, module title, summary, status type, action URL).
+   - Confidential financial numbers (payroll salaries, bank accounts, confidential unit prices, invoice balance breakdowns) are strictly excluded from WebSocket frames. Full records are fetched via authenticated, policy-guarded HTTP endpoints.
+4. **Google Stitch UI Integration (`15768566540196779944`)**:
+   - Implemented top navigation notification bell with unread badge counter (`#notification-badge-count`), live pulse animation, and WebSocket connection indicator dot.
+   - Built Stitch-aligned dropdown panel with live event streaming, mark-as-read toggles, and record navigation.
+   - Built full Notification Centre (`/notifications`) with 4 KPI summary cards, filter tabs (All Events, Unread, Procurement & PR, Muster & Payroll, Billing & Finance, Projects & Sites), and "Mark All as Read" action.
+5. **Reconnection & Fallback Resilience**:
+   - Echo client automatically tracks connection states (`connected`, `connecting`, `disconnected`).
+   - Reconnecting to WebSocket triggers an immediate call to `/notifications/feed` to retrieve notifications missed during disconnection.
+   - Fallback HTTP polling runs every 60s and reconciles state whenever the browser tab regains focus.
+6. **Multi-Session Live Browser Verification**:
+   - Automated Puppeteer audit (`tests/Browser/e2e_realtime_notifications_audit.js`) verified:
+     - Session A (Project Manager) receives live WebSocket notification from Session B (Site Supervisor) without page reload.
+     - Unread badge dynamically increments in the top navigation.
+     - Notification bell dropdown renders the newly arrived indent alert.
+     - Notification Centre displays filter tabs and updates metrics.
+     - Mark All as Read decrements counter to 0.
+     - Cross-company channel subscriptions are rejected.
+     - HTTP fallback returns status 200 OK.
+   - Browser screenshots captured: `reverb_01_live_notification_received.png`, `reverb_02_notification_centre.png`, `reverb_03_tenant_isolation.png`, `reverb_04_fallback_state.png`.
+7. **Test Suite Status**:
+   - Automated tests: **133 tests, 837 assertions, 0 errors, 100% passing**.
+
+### 10.6. Secure Document & File Upload Management Audit (Phase 10)
+An end-to-end security, performance, and functional audit of the document management subsystem was conducted:
+1. **Foundation & Data Integrity**:
+   - Migration `2026_10_18_000006_create_documents_table.php` applied cleanly. Zero database records altered or truncated.
+   - Files stored exclusively in private storage (`storage/app/private`) under company-isolated directories with random UUID filenames.
+   - Checksum validation: SHA-256 hash computed at ingest for tamper protection.
+   - MIME verification: `finfo_file` magic-byte inspection enforced server-side. Extension allowlist (`pdf`, `png`, `jpg`, `jpeg`, `dwg`, `dxf`, `xlsx`, `xls`, `csv`, `doc`, `docx`) and 15MB limit enforced.
+2. **Scanner Integration**:
+   - Designed `FileScannerInterface` and `ConfigurableFileScanner` supporting local ClamAV daemon via TCP/Unix socket.
+   - Non-blocking development fallback ensures rapid developer workflow when ClamAV is offline.
+3. **Statutory Immutability Lock**:
+   - Deletion blocked on posted/reversed journals (`JournalEntry`), certified/paid subcontractor bills (`SubcontractorBill`), approved/paid client invoices (`ClientInvoice`), approved/disbursed payroll periods (`PayrollPeriod`), and settled loans (`Loan`).
+   - Verified via automated tests (`DocumentManagementTest.php`) and model policy (`DocumentPolicy`).
+4. **Confidentiality Vault & RBAC**:
+   - Sensitive HR documents (Aadhaar, PAN, salary contracts) and banking records marked `is_confidential = true`.
+   - Vault documents strictly isolated to `owner`, `admin`, `hr_officer`, and `accountant` roles. General project users and site supervisors receive HTTP 403 or filtered query results.
+5. **Central Document Centre & Stitch UI Integration (`15768566540196779944`)**:
+   - Full repository at `/documents` with 4 KPI cards, multi-module filter, category filter, search, and confidential vault toggle.
+   - Reusable `<x-document-manager>` Blade/Alpine component embedded across 16 core business views.
+   - Streaming inline preview modal supporting PDFs and images with strict security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`).
+6. **Browser E2E Audit with Puppeteer**:
+   - Executed `tests/Browser/e2e_document_management_audit.js` capturing 5 high-resolution screenshots:
+     - `doc_01_project_detail_attached.png` (Project detail with attached drawing)
+     - `doc_02_preview_modal.png` (Real-time PDF preview modal)
+     - `doc_03_po_delivery_challan.png` (PO detail with attached challan)
+     - `doc_04_central_document_centre.png` (Document Centre with 4 KPI cards and filter)
+     - `doc_05_document_centre_mobile.png` (Mobile viewport 375x812 responsive layout)
+7. **Test Suite Status**:
+   - Automated tests: **144 tests, 901 assertions, 0 errors, 100% passing**.
+
 ---
 
-## 11. Next Recommended Implementation Target
+### 10.7. Production Readiness, Security Hardening & Go-Live Audit (Phase 11)
+A comprehensive production-readiness and security hardening audit was conducted across the entire BuildFlow CRM/ERP application:
 
-With Subcontractor Work Orders, Measurement Book, and Bill Certification fully operational:
-1. **GST Tax Return Filing Vouchers**: Automated GSTR-1 and GSTR-3B reconciliation exports from client invoices and supplier/subcontractor input tax credits.
-2. **Equipment Fuel & Maintenance Cost Allocation**: Hourly machine deployment and diesel consumption tracking allocated against project cost centers.
-3. **Subcontractor Retention Release & Final Settlement**: Final bill certification and settlement of retention withheld (Account `2030`) post-defect liability inspection.
+1. **Baseline Integrity Reconciliation**:
+   - **Environment Stack**: PHP 8.5.11 (cli), Composer 2.10.3, Laravel 13.37.0, MySQL 26.7.0.
+   - **Database Status**: Target database `buildflow_crm` on `127.0.0.1:3306`. 16/16 migrations applied with zero pending migrations.
+   - **Dependency Vulnerabilities**: `composer audit` reports 0 security advisories; `npm audit` reports 0 vulnerabilities.
+   - **General Ledger Reconciliation**: Reconciled all 7 posted journal vouchers. Trial Balance: Total Debits ₹3,494,664.07 == Total Credits ₹3,494,664.07 (Difference: ₹0.00).
+   - **Tenant & Entity Integrity**: Zero orphaned records across users, projects, documents, purchase orders, or general ledger vouchers.
+
+2. **Security Hardening & Vulnerability Remediation**:
+   - **Local Disk Web Route Suppression**: Hardened `config/filesystems.php` by setting `'serve' => false` on the `'local'` disk (`storage/app/private`), permanently preventing unauthenticated path enumeration via Laravel default storage routes.
+   - **Fail-Closed Scanner Protection**: Updated `ConfigurableFileScanner.php` and `ScanResult.php` to enforce fail-closed behavior (`SCANNER_FAIL_CLOSED=true`). File uploads and stream previews (`DocumentService`) are blocked (`HTTP 423 Locked`) if the scanner is unreachable, times out, or reports errors.
+   - **Immediate Session Revocation**: Hardened `User::currentCompany()` and `WorkspaceController::switch()` with `wherePivot('status', 'active')`. Revoking or suspending a user's company membership immediately denies access to tenant resources without waiting for session expiry.
+   - **SQL Operator Precedence Fix**: Grouped multi-column search queries in `GlobalSearchController` within parameter-grouped subquery closures `where(function ($sub) { ... })`, preventing unparenthesized `OR` clauses from bypassing `BelongsToCompany` global tenant scopes.
+   - **Confidential Compensation Masking**: Added role-based access checks (`authorizeEmployeeView`) in `EmployeeController` and masked daily wages and monthly salaries in `resources/views/employees/show.blade.php` to prevent unauthorized field staff from viewing compensation figures.
+   - **Financial Dashboard Honesty**: Removed hardcoded fallback sums (`4520000.00` and `2596000.00`) in `DashboardController.php`, ensuring receivables and payables reflect strictly verified ledger totals (`0.00` if null).
+   - **Layered Rate Limiting**: Added strict throttle guards across authentication (`5/min`), password reset (`3/min`), document uploads (`30/min`), document preview/download streaming (`60/min`), and health monitoring (`60/min`).
+   - **Trusted Proxies & Reverse Proxy Support**: Configured `$middleware->trustProxies(at: '*')` in `bootstrap/app.php` for production Nginx/Cloudflare TLS termination.
+   - **Custom Branded Error Views**: Created `resources/views/errors/403.blade.php`, `404.blade.php`, `500.blade.php`, and `503.blade.php` matching Stitch design tokens (`#dbe2ea` / `#f7f9fc`), preventing disclosure of internal paths, table schemas, or stack traces.
+
+3. **Disaster Recovery & Isolated Restore Verification**:
+   - Engineered and executed `php artisan buildflow:verify-recovery` (`VerifyDisasterRecoveryCommand.php`).
+   - Performed non-destructive live backup and isolated restore into a disposable test database (`buildflow_restore_test`) and temporary directory:
+     - **Database Tables**: All 72 tables verified (100% parity).
+     - **Row Count Parity**: 100% identical row counts across all 72 tables.
+     - **Migration Status**: All 16 migrations verified identical.
+     - **Ledger Invariant**: Restored Trial Balance debits (₹3,494,664.07) equal credits (₹3,494,664.07).
+     - **Document Storage Integrity**: All 4 private documents restored and validated against their original SHA-256 binary hash digests.
+     - **Teardown**: Disposable database dropped and temporary scratch directories purged automatically.
+
+4. **Production Health Monitoring Endpoint (`GET /health`)**:
+   - Deployed `HealthCheckController.php` providing structured JSON diagnostics covering database connectivity and latency, storage capacity, cache driver status, Reverb WebSocket availability, and scanner status with zero secret leakage.
+
+5. **Multi-Session Browser E2E Audit (`tests/Browser/e2e_production_readiness_audit.js`)**:
+   - Captured 10 high-resolution verification screenshots across critical workflows:
+     - `prod_01_auth_role_dashboard.png`: Super Admin operational dashboard and KPIs.
+     - `prod_02_tenant_isolation_denied.png`: Cross-tenant direct access blocked with custom Stitch 404 page.
+     - `prod_03_pr_po_attached_flow.png`: PO detail with attached supplier delivery challan.
+     - `prod_04_workforce_payroll_security.png`: Site engineer muster roll view vs role-gated 403 payroll gate.
+     - `prod_05_billing_retention_subcontractor.png`: Client billing, retention claims, and certified subcontractor bills.
+     - `prod_06_journal_immutability_trial_balance.png`: Balanced Trial Balance (Dr == Cr) and immutable posted journals.
+     - `prod_07_document_security_preview.png`: Document Centre streaming PDF preview modal.
+     - `prod_08_reverb_live_notifications.png`: Real-time Notification Centre with live WebSocket connectivity.
+     - `prod_09_health_check_operational.png`: Operational `/health` diagnostic response.
+     - `prod_10_mobile_responsive_views.png`: Responsive mobile layout at 375x812 viewport.
+
+6. **Automated Test Suite Status**:
+   - Full suite passes cleanly: **151 tests, 943 assertions, 0 errors, 100% passing** in 4.2 seconds.
+   - Frontend production build (`npm run build`) builds cleanly in 249ms (110.97 kB CSS / 352.54 kB JS).
+
+---
+
+### 10.8. Go-Live Gate Closure & Production Handover (Phase 12)
+A targeted closure audit was conducted to resolve outstanding production discrepancies and finalize the deployment handover package:
+
+1. **Resolution of Scanner Configuration Discrepancy**:
+   - **Production Fail-Closed Defaults**: Hardened `config/filesystems.php` and `ConfigurableFileScanner.php`. When running under `APP_ENV=production`, `fail_closed` strictly defaults to `true` and `allow_unscanned_dev` is forced to `false`, eliminating any dependency on manual environment variable overrides.
+   - **Download & Preview Access Gate**: Added `Document::isCleanForAccess()` and updated `DocumentService::streamPreview()` and `DocumentService::download()`. In production or fail-closed mode, `unscanned` files return `HTTP 423 Locked`. Across all environments, files in `pending`, `error`, `quarantined`, or `infected` states are unconditionally blocked from preview and download.
+   - **Health Endpoint Runtime Accuracy**: Updated `HealthCheckController.php` to report effective runtime values (`effective_fail_closed`, `allow_unscanned_dev`, and accurate `scannerStatus`). In production, unreachable ClamAV under fail-closed mode sets `status: 'error_blocking'` and flags the overall service as `unhealthy` (HTTP 503).
+   - **Comprehensive Regression Suite**: Created `tests/Feature/GoLiveGateClosureTest.php` (6 tests, 32 assertions) verifying production upload rejection, preview/download blocking on unscanned and flagged files, development fallback gating, health check runtime reporting, and login demo credential masking.
+
+2. **Suppression of Demo Credentials in Production**:
+   - Hardened `resources/views/auth/login.blade.php`: The demo credentials pre-fill (`admin@buildflow.local` / `Password123!`) and the demo credentials information card are conditionally wrapped in `@if(app()->environment('local', 'testing'))`.
+   - In production (`APP_ENV=production`), input fields are completely blank and no demo credentials banner is rendered to public visitors.
+
+3. **Trusted Proxy Network Boundary Protection**:
+   - Hardened `bootstrap/app.php`: Replaced indiscriminate wildcard proxy trust (`trustProxies(at: '*')`) with environment-controlled configuration (`env('TRUSTED_PROXIES')`).
+   - In production, proxy trust is strictly restricted to designated upstream reverse proxy IPs or CIDR blocks, preventing client IP and protocol spoofing via untrusted `X-Forwarded-*` headers.
+
+4. **Automated Quality & Verification Status**:
+   - Automated test suite: **157 passed, 975 assertions, 0 errors, 100% passing** (5.24s).
+   - Frontend production build (`npm run build`): Vite v8.3.4 (355ms, 110.97 kB CSS / 352.54 kB JS).
+   - Disaster recovery restore audit (`php artisan buildflow:verify-recovery`): 100% table and row parity, GL balanced, 4 document files SHA-256 binary hash verified intact.
+   - Browser E2E suite (`tests/Browser/e2e_production_readiness_audit.js`): 10/10 critical workflows verified in headless Chrome with visual artifacts (`prod_01` through `prod_10`).
+
+---
+
+### 10.9. Release Engineering, Automated Backups & Production Acceptance (Phase 13)
+A rigorous release engineering, automated backup, and production acceptance audit was completed:
+
+1. **Framework & Runtime Reconciliation**:
+   - **Runtime Baseline**: Verified installed runtime: PHP 8.5.11 (cli), Composer 2.10.3, Laravel 13.37.0, MySQL 26.7.0.
+   - **Documentation Cleansing**: Updated all deployment guides, architecture records, security briefs, and setup instructions, eliminating stale references to "Laravel 11/12" and "PHP 8.3".
+
+2. **Durable Automated Backup & Recovery Engine**:
+   - Built a dedicated persistent backup engine governed by `config/backup.php` and `app/Services/Backup/BackupManager.php`.
+   - Clearly decoupled the four distinct lifecycle operations:
+     1. **Creation**: Atomic SQL dump (`.tmp` to `.sql`), private storage tarball (`storage.tar.gz`), optional OpenSSL AES-256-CBC encryption (`BACKUP_ENCRYPT`), and atomic `manifest.json`.
+     2. **Validation**: Checksum recalculation, format verification (`tar -tzf`), test decryption, and validation state recording (`validation_status`).
+     3. **Isolated Restore**: Full database and file tree restore into disposable schema `buildflow_restore_test` and temporary directory with automated parity verification.
+     4. **Operational Recovery**: Documented human operator failover runbook.
+   - Built dedicated Artisan CLI commands:
+     - `php artisan buildflow:backup:create {--frequency=hourly|daily|monthly} {--encrypt}`
+     - `php artisan buildflow:backup:validate {backup_id?}`
+     - `php artisan buildflow:verify-recovery {--backup=latest}`
+   - **Concurrency Safety**: Enforced atomic lock `buildflow_backup_running_lock` via Cache driver to prevent overlapping backup executions.
+   - **Retention Protection**: Configured tiered retention (24 hourly, 30 daily, 12 monthly). Backups verified by isolated restore tests are tagged `is_protected = true` and strictly exempt from deletion, ensuring that automated retention never destroys the last verified recovery baseline.
+
+3. **Resolution of RPO (1 Hour) & RTO (15 Min) SLAs**:
+   - Reconciled scheduling definitions in `routes/console.php`:
+     - Hourly snapshot creation: `hourly()->withoutOverlapping()->runInBackground()`
+     - Daily integrity validation: `dailyAt('02:00')->withoutOverlapping()`
+     - Weekly isolated restore verification: `weeklyOn(0, '03:00')->withoutOverlapping()`
+   - Health check endpoint (`GET /health`) and release preflight command monitor backup freshness and flag warnings if the latest backup exceeds the 120-minute threshold.
+
+4. **Isolated Safe Recovery Testing**:
+   - Executed automated recovery verification against disposable database `buildflow_restore_test`:
+     - **Database Schema**: 72 tables verified (100% parity).
+     - **Record Parity**: Exact row count match across all 72 tables.
+     - **Migration Count**: 16/16 applied migrations verified.
+     - **General Ledger Invariant**: Reconciled Trial Balance debits (₹3,494,664.07) equal credits (₹3,494,664.07).
+     - **Storage Invariance**: All private document attachments matched their ingest SHA-256 binary hash digests.
+     - **Zero Side Effects**: Teardown completely drops disposable database and purges temporary files; live business database was never subjected to destructive operations.
+
+5. **Release Preflight & Go-Live Gate (`php artisan buildflow:preflight {--strict}`)**:
+   - Implemented automated preflight gate evaluating 13 operational domains:
+     1. Environment & Debug Mode (`production` / `debug: false`)
+     2. Application Key (`APP_KEY` present and valid)
+     3. Database & Migrations (0 pending migrations)
+     4. General Ledger Balance Invariant (balanced Trial Balance)
+     5. Private Storage Privacy (`serve => false` on local disk)
+     6. Anti-Malware Fail-Closed Configuration (`SCANNER_FAIL_CLOSED=true`)
+     7. ClamAV Daemon Availability (reachability check)
+     8. HTTPS & Secure Cookies (`https://` URL & `SESSION_SECURE_COOKIE`)
+     9. Reverse Proxy Trust (`TRUSTED_PROXIES` restricted)
+     10. Reverb WebSocket Daemon & Origins (`REVERB_ALLOWED_ORIGINS` non-wildcard)
+     11. Durable Automated Backups (RPO age < 120m, valid, restore tested)
+     12. Frontend Production Assets (`public/build/manifest.json` present)
+     13. Demo Credentials Suppression (login pre-fill masked)
+   - Dual-Mode Operation: Advisory mode exits `0` for local developer auditing; strict mode (`--strict`) exits `1` if mandatory production security or infrastructure checks fail.
+
+6. **Automated Test Suite Status**:
+   - Feature regression test suite created: `tests/Feature/AutomatedBackupAndReleaseAcceptanceTest.php` (7 tests, 32 assertions).
+   - Full PHPUnit test suite: **164 passed, 1007 assertions, 0 errors, 100% passing** (9.19s).
+   - Frontend production build (`npm run build`): Vite v8.3.4 (286ms, 110.97 kB CSS / 352.54 kB JS).
+
+---
+
+## 11. Go-Live Decision & Executive Readiness Sign-Off
+
+### Executive Recommendation: **READY WITH STATED LIMITATIONS**
+
+The BuildFlow CRM/ERP core application codebase has satisfied all functional, financial, security, backup durability, and data-integrity requirements necessary for production operations:
+- **Ledger Integrity**: Balanced double-entry general ledger (Total Debits ₹3,494,664.07 == Total Credits ₹3,494,664.07) with immutable posted journal entries and audited reversals.
+- **Tenant Isolation**: Multi-tenant separation enforced server-side across all database queries, polymorphic document storage, real-time Reverb channels, and global search.
+- **Fail-Closed Document Security**: Private disk storage outside web root (`serve => false`), SHA-256 binary checksums, and strict fail-closed anti-malware enforcement.
+- **Durable Automated Backups & DR**: Hourly snapshot backups, daily checksum validations, isolated restore testing (`buildflow:verify-recovery`), and retention protection for verified recovery copies.
+- **Release Preflight Gate**: Automated 13-domain preflight audit (`buildflow:preflight`) distinguishing developer advisory checks from strict production blockers.
+- **Automated Test Coverage**: 164 automated tests with 1007 assertions, 0 errors, 100% pass rate.
+
+Live business operations may proceed immediately for core construction operations, subject to the host infrastructure prerequisites documented below.
+
+### Prioritized Risk Register
+
+| Risk ID | Severity | Affected Component | Finding & Risk Description | Remediation Implemented | Verification Status |
+|---|---|---|---|---|---|
+| **RSK-01** | High | Document Storage | Local disk default route could expose private storage if `serve` was enabled. | Set `'serve' => false` on `'local'` disk in `config/filesystems.php`. | **Verified** (404 on direct path, protected streaming only) |
+| **RSK-02** | High | Anti-Malware | In production, scanner timeout or offline daemon could allow unverified uploads under fail-open defaults. | Enforced fail-closed policy (`fail_closed: true` in production), blocked downloads on unscanned files (`HTTP 423`), and updated health check. | **Verified** (`GoLiveGateClosureTest`) |
+| **RSK-03** | Medium | Tenant Scoping | Top-level `orWhere` in global search could weaken tenant isolation via SQL operator precedence. | Wrapped search clauses in parameter-grouped closures `where(function ($sub) { ... })`. | **Verified** (`ProductionSecurityHardeningTest`) |
+| **RSK-04** | Medium | Workspace RBAC | Deactivated users could maintain access if user session remained active. | Enforced `wherePivot('status', 'active')` in `currentCompany()` and workspace switcher. | **Verified** (`ProductionSecurityHardeningTest`) |
+| **RSK-05** | Medium | HR Privacy | Site supervisors could see employee daily wage and monthly salary master data. | Gated compensation fields behind `viewAnyCompensation` and masked in Blade templates. | **Verified** (Browser audit & automated tests) |
+| **RSK-06** | Medium | Accounting | Dashboard previously defaulted null receivables/payables to mock amounts. | Replaced fake fallbacks with honest `0.00` database aggregations. | **Verified** (Codebase & dashboard audit) |
+| **RSK-07** | Medium | Authentication | Login page displayed pre-filled demo credentials and passwords. | Restricted demo credentials pre-fill and display strictly to `local` and `testing` environments. | **Verified** (`GoLiveGateClosureTest`) |
+| **RSK-08** | Low | Reverse Proxy | Wildcard proxy trust (`*`) could allow IP/scheme spoofing when deployed without upstream proxy. | Restricted trusted proxies to `TRUSTED_PROXIES` environment variable in production. | **Verified** (`bootstrap/app.php`) |
+| **RSK-09** | High | Disaster Recovery | Hourly RPO was claimed without persistent storage or automated scheduler definitions. | Engineered `BackupManager`, hourly/daily/weekly scheduler in `routes/console.php`, atomic `manifest.json`, and retention protection. | **Verified** (`AutomatedBackupAndReleaseAcceptanceTest`) |
+| **RSK-10** | Medium | Release Governance | No automated gate prevented deployment with missing production environment requirements. | Created `buildflow:preflight {--strict}` evaluating 13 operational domains with actionable remediation. | **Verified** (`ReleasePreflightCommand`) |
+
+### Stated Limitations & Production Infrastructure Handover Prerequisites
+Before opening the application to public internet traffic on the live server, the host DevOps/infrastructure operator must complete the following 4 tasks:
+1. **Provision Host ClamAV Daemon**: Install and start ClamAV (`clamd`) on the production host or sidecar container at port 3310 (or unix socket `/var/run/clamav/clamd.ctl`).
+2. **Reverse Proxy TLS & WSS Termination**: Configure Nginx, Caddy, or Cloudflare to terminate HTTPS on port 443 with valid SSL certificates, and proxy WebSocket connections (`/reverb/`) to port 8080.
+3. **Environment Secret Rotation**: Replace default development credentials, database password, application key (`APP_KEY`), and Reverb keys with freshly generated production secrets.
+4. **Host Scheduler Crontab & Off-Host Backup Sync**: Configure the standard Laravel scheduler crontab (`* * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1`) and configure an off-host sync (e.g. AWS S3 Glacier, Azure Archive) for retained backups to meet statutory 6–8 year accounting retention mandates.
+
+
+
+
+
 
 

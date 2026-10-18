@@ -385,6 +385,20 @@
             </table>
         </div>
     </div>
+
+    <!-- Subcontractor RA Bill Documents & Measurement Sheets -->
+    <x-document-manager 
+        :record="$subcontractorBill" 
+        type="subcontractor_bill" 
+        title="Subcontractor Invoices, Measurement Sheets & Joint Records"
+        :categories="[
+            'measurement_sheet' => 'Signed Measurement Sheet / JMR',
+            'supplier_invoice' => 'Subcontractor Tax Invoice / Claim',
+            'completion_certificate' => 'Site Engineer Measurement & Work Sign-off',
+            'voucher_support' => 'Payment Disbursal / Bank UTR Copy',
+            'general' => 'General Supporting File',
+        ]"
+    />
 </div>
 
 <!-- Modal: Record Payment -->

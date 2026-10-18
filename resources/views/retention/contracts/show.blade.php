@@ -336,6 +336,20 @@
             </table>
         </div>
     </div>
+
+    <!-- Contract Documents & Retention Milestones -->
+    <x-document-manager 
+        :record="$contract" 
+        type="client_contract" 
+        title="Contract Execution Documents & Statutory Guarantees"
+        :categories="[
+            'contract' => 'Formal Signed Contract Agreement & Addendums',
+            'completion_certificate' => 'Taking-Over & Completion Certificates',
+            'specification' => 'Contract BOQ & Milestone Schedule',
+            'drawing' => 'Contractual Scope Drawings',
+            'general' => 'Contract Correspondence & Formal Notices',
+        ]"
+    />
 </div>
 
 <!-- Modal: Record Certificate -->

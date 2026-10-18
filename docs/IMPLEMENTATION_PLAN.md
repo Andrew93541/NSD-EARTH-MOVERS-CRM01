@@ -8,7 +8,7 @@ This document outlines the phased implementation plan, tech stack alignment, arc
 ---
 
 ## Technology Stack Alignment
-- **Runtime & Language**: PHP 8.3+ with Laravel 11/12
+- **Runtime & Language**: PHP 8.3+ (Active Runtime: PHP 8.5.11) with Laravel 13.x (Installed: 13.37.0)
 - **Database Engine**: MySQL 8+ with InnoDB, foreign keys, composite indexes, strict transactional isolation
 - **Frontend / Templating**: Laravel Blade with Tailwind CSS v3 (matching Stitch design system tokens)
 - **Micro-Interactions**: Alpine.js
@@ -292,5 +292,215 @@ This document outlines the phased implementation plan, tech stack alignment, arc
   - `journal_01_vouchers_register.png`: Verified journal register with all 7 vouchers, balanced lines, and reverse controls.
   - `journal_02_trial_balance_reconciled.png`: Verified Trial Balance showing exact balance across 14 accounts (₹4,200,094.00).
 - [x] Full test suite passing: **123 tests, 795 assertions, 0 errors, 100% passing**
+
+---
+
+### Phase 9: Secure Real-Time Notifications with Laravel Reverb & Echo (Completed & Verified)
+- [x] Server-Side Broadcasting Infrastructure:
+  - Installed `laravel/reverb` (v1.12.0) and configured `config/broadcasting.php`, `config/reverb.php`, and `.env` (`BROADCAST_CONNECTION=reverb`).
+  - Added channels definition to `bootstrap/app.php` (`channels: __DIR__.'/../routes/channels.php'`).
+  - Implemented channel authorization callbacks in `routes/channels.php` enforcing multi-tenant isolation, user identity matching, and role-based permissions for user, company, role, project, and site private channels.
+- [x] Post-Commit Event Dispatching & Service Layer:
+  - Created `App\Events\NotificationDispatched` implementing `ShouldBroadcastNow` with `$afterCommit = true`.
+  - Created `App\Services\NotificationService` providing `sendToUser()`, `sendToCompany()`, `sendToRole()`, `markAsRead()`, and `markAllAsRead()`.
+  - Added transaction-aware broadcasting with `DB::afterCommit(...)` wrapper and fail-safe try-catch handling ensuring standard HTTP requests remain fully functional even when Reverb is offline.
+  - Implemented model-level post-commit dispatching via `AppNotification::booted()` hook.
+- [x] Business Workflow Event Integration:
+  - Material indent submitted / approved / rejected (`PurchaseRequestController`).
+  - Purchase order issued / Goods receipt recorded (`ProcurementController`).
+  - Material stock shortage alert when available <= reorder level (`InventoryController`).
+  - Daily attendance muster roll submitted (`AttendanceController`).
+  - Payroll batch submitted for review / approved (`PayrollController`).
+  - Client RA invoice generated / client payment recorded (`BillingController`).
+  - Subcontractor bill certified / payment recorded (`SubcontractorBillController`).
+  - Client retention release claim submitted / approved / settled (`RetentionController`).
+  - Project milestone status changes (`ProjectController`).
+- [x] Notification Centre UI & Experience (Google Stitch `15768566540196779944`):
+  - Top navigation notification bell with unread badge counter (`notification-badge-count`) and live pulse micro-animation.
+  - Real-time connection indicator dot (green = connected, amber = connecting, red = offline).
+  - Bell dropdown panel with live feed, mark single read, mark all read, and record routing.
+  - Full Notification Centre (`/notifications`) with 4 KPI summary cards, filter tabs (All, Unread, Procurement, Muster & Payroll, Billing & Finance, Projects & Sites), and pagination.
+  - Sidebar navigation entry with active unread counter badge.
+- [x] Client Resilience & Reconnection:
+  - Configured Laravel Echo with Pusher client in `resources/js/echo.js` and `resources/js/app.js`.
+  - Added connection state tracking and automatic feed reconciliation upon WebSocket reconnection.
+  - Graceful fallback: silent HTTP polling every 60s and window focus synchronization.
+- [x] Automated Feature Tests (`tests/Feature/RealTimeNotificationTest.php` - 10 tests, 42 assertions):
+  - Targeted user private channel authorization and event delivery.
+  - Company tenant isolation and cross-company channel subscription rejection (403).
+  - Inactive/revoked company user subscription denial.
+  - Role, project, and site channel authorization gates.
+  - Safe payload verification (strict prohibition of salaries, bank accounts, and rates).
+  - Transaction commit timing (`$afterCommit = true`) and rollback isolation.
+  - Read/unread state persistence and unread count reconciliation.
+  - Cross-tenant notification read denial (global tenant scope 404 / 403).
+  - Broadcaster downtime resilience.
+- [x] Multi-Session Browser E2E Audit with Puppeteer (`tests/Browser/e2e_realtime_notifications_audit.js` - 4 screenshots verified):
+  - `reverb_01_live_notification_received.png`: Session A (Project Manager) receives live WebSocket notification from Session B (Site Supervisor) without page reload; topbar badge updates 2 -> 3; bell pulses; dropdown displays event.
+  - `reverb_02_notification_centre.png`: Full Notification Centre loaded with tabs, KPI cards, and unread highlight.
+  - `reverb_03_tenant_isolation.png`: Mark All As Read decrements unread counter to 0; cross-company channel subscription strictly denied.
+  - `reverb_04_fallback_state.png`: HTTP notification feed endpoint returns valid fallback JSON and reconciles state.
+- [x] Full test suite passing: **133 tests, 837 assertions, 0 errors, 100% passing**
+
+---
+
+### Phase 10: Secure, System-Wide Document & File Upload Management (Completed & Verified)
+- [x] Database Schema & Additive Migration:
+  - Created migration `2026_10_18_000006_create_documents_table.php` (applied without database reset, truncation, or reseed).
+  - Table `documents` features: `company_id`, polymorphic parent association (`documentable_type`, `documentable_id`), `category`, `original_name`, `storage_name`, `disk`, `path`, `mime_type`, `file_size`, `checksum` (SHA-256), `version`, `is_confidential`, `scan_status`, `uploaded_by`, `superseded_by_id`, soft deletes (`deleted_at`), and composite indexes `[company_id, documentable_type, documentable_id]` and `[company_id, category]`.
+- [x] Document Models & Eloquent Traits:
+  - Created `App\Models\Document` with `BelongsToCompany`, `SoftDeletes`, `scopeActive()`, `scopeVisibleTo($user)`, preview helpers (`isPdf()`, `isImage()`, `isPreviewable()`, `formatted_size`), and statutory immutability check (`isParentImmutable()`).
+  - Created `App\Models\Traits\HasDocuments` providing polymorphic `documents()` and `activeDocuments()` relationships.
+  - Attached `HasDocuments` trait to 17 core business models:
+    - `Project`, `Site`, `DailySiteLog`
+    - `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`
+    - `Employee`, `PayrollPeriod`
+    - `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`
+    - `Supplier`, `SubcontractorWorkOrder`, `SubcontractorBill`, `MeasurementBookEntry`
+    - `FixedAsset`, `Loan`, `JournalEntry`
+- [x] Security & Anti-Malware Scanner Architecture:
+  - Designed scanner pipeline: `App\Services\Security\ScanResult`, `FileScannerInterface`, and `ConfigurableFileScanner`.
+  - Configurable ClamAV daemon integration (`CLAMAV_HOST`, `CLAMAV_PORT`) with safe fallback to `unscanned` in development.
+  - Storage security: Private disk storage (`storage/app/private`), non-sequential random UUID physical filenames, zero trust in user path input, safe filename sanitization via `preg_replace`.
+  - Server-side `finfo_file` magic-byte inspection verifying actual binary headers against `ALLOWED_MIMES`.
+  - Extension allowlist (`pdf`, `png`, `jpg`, `jpeg`, `dwg`, `dxf`, `xlsx`, `xls`, `csv`, `doc`, `docx`) with 15MB file size limit.
+  - SHA-256 cryptographic hash calculated on ingest for tamper prevention.
+- [x] Policy, Service Layer & Immutability Rules:
+  - Created `App\Services\DocumentService` managing upload, metadata extraction, safe private disk storage, non-destructive replacement (`replaceDocument()`), authorized soft-delete (`deleteDocument()`), streaming preview (`streamPreview()`), and file download (`download()`) with defense-in-depth HTTP headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`).
+  - Created `App\Policies\DocumentPolicy` registered in `AppServiceProvider`.
+  - Enforces tenant isolation, parent record access rights, confidential document restrictions (`owner`, `admin`, `hr_officer`, `accountant`), and statutory immutability locks blocking deletion on posted journals, certified subcontractor bills, approved client invoices, and settled loans.
+  - Audit logging via `AuditLog` for upload, replace, and delete events.
+- [x] Central Document Centre & Reusable Component:
+  - Built `<x-document-manager>` Blade/Alpine component with drag-and-drop file dropzone, category selector, file pill list, confidential toggle, inline preview modal, download, and delete confirmation modal.
+  - Integrated `<x-document-manager>` into 16 core business record views:
+    1. Projects (`projects/show.blade.php`) — Architectural drawings, specifications, EPC contracts
+    2. Sites (`sites/show.blade.php`) — Safety permits, statutory licenses, inspection reports
+    3. Purchase Requests (`purchase-requests/show.blade.php`) — Technical specs, supplier quotation comparison
+    4. Procurement / POs & GRNs (`procurement/show.blade.php`) — Vendor purchase orders, delivery challans, inspection photos
+    5. Client RA Billing (`billing/show.blade.php`) — Certified RA bill copies, joint measurement sheets, payment receipts
+    6. Retention Claims (`retention/claims/show.blade.php`) — DLC handover certificates, bank guarantees, release claims
+    7. Retention Contracts (`retention/contracts/show.blade.php`) — Master client agreements, defect liability terms
+    8. Subcontractor Work Orders (`work-orders/show.blade.php`) — Signed work orders, itemized BOQ schedules
+    9. Subcontractor Profiles (`subcontractors/show.blade.php`) — GST/PAN certificates, MSME registration, WC insurance
+    10. Measurement Books (`measurement-books/show.blade.php`) — Field survey sheets, level calculation books, site photos
+    11. Subcontractor Bills (`subcontractor-bills/show.blade.php`) — Subcontractor tax invoices, measurement sign-off sheets
+    12. Fixed Assets (`assets/show.blade.php`) — Machine RC books, vehicle fitness, insurance policies, tax invoices
+    13. Equipment Loans (`loans/show.blade.php`) — Loan sanction letters, hypothecation deeds, EMI schedules
+    14. Employee Profiles (`employees/show.blade.php`) — Confidential Aadhaar cards, PAN cards, employment contracts
+    15. Payroll Batches (`payroll/show.blade.php`) — Confidential bank NEFT batch files, PF/ESI challans
+    16. Journal Vouchers (`accounting/journals.blade.php`) — Source debit/credit vouchers, bank counterfoils, vendor receipts
+  - Built Central Document Centre (`/documents`) with 4 KPI summary cards, module filter, category filter, keyword search, confidential vault toggle, and inline streaming preview modal.
+  - Added "Document Centre" link to master sidebar navigation.
+- [x] Automated Feature Tests (`tests/Feature/DocumentManagementTest.php` - 11 tests, 64 assertions):
+  - Authorized upload of valid file to authorized parent record.
+  - Server-side MIME validation rejecting invalid or spoofed files.
+  - File size cap enforcement (>15MB rejected).
+  - Storage path and UUID isolation (zero trust in user path input).
+  - Unauthenticated access rejection (redirect to login).
+  - Cross-tenant upload and preview rejection (404/403 with zero metadata leakage).
+  - Unauthorized user permission denial on protected records.
+  - Confidential vault isolation (hides confidential documents from site supervisors).
+  - Non-destructive document replacement with version history increment.
+  - Statutory immutability lock preventing deletion of documents on posted journal entries.
+  - Central Document Centre search, category filter, and tenant scoping.
+- [x] Real Browser E2E Audit with Puppeteer (`tests/Browser/e2e_document_management_audit.js` - 5 screenshots verified):
+  - `doc_01_project_detail_attached.png`: Project detail view showing uploaded structural drawing with preview and delete controls.
+  - `doc_02_preview_modal.png`: Real-time streaming PDF preview modal rendering inline with security headers.
+  - `doc_03_po_delivery_challan.png`: Purchase Order detail view with attached vendor delivery challan and category badge.
+  - `doc_04_central_document_centre.png`: Central Document Centre repository showing 4 KPI cards, filters, and records table.
+  - `doc_05_document_centre_mobile.png`: Mobile viewport (375x812) responsive layout verifying responsive table and action buttons.
+- [x] Full test suite passing: **144 tests, 901 assertions, 0 errors, 100% passing**
+
+---
+
+### Phase 11: Production Readiness, Security Hardening & Go-Live Audit (Completed & Verified)
+- [x] Baseline Establishment & Read-Only Audit:
+  - PHP 8.5.11 (cli), Composer 2.10.3, Laravel Framework 13.37.0, MySQL 26.7.0.
+  - Verified 16/16 migrations applied with zero pending.
+  - Zero vulnerability advisories across both Composer (`composer audit`) and NPM (`npm audit`).
+- [x] Database Integrity & Disaster Recovery Verification:
+  - Reconciled Trial Balance across all posted journal entries: Debits ₹3,494,664.07 == Credits ₹3,494,664.07 (Diff: ₹0.00).
+  - Verified zero unbalanced posted journals (0/7), zero orphaned users, zero orphaned projects, zero orphaned documents.
+  - Built repeatable Artisan command: `php artisan buildflow:verify-recovery`.
+  - Executed automated disaster recovery test against isolated disposable database (`buildflow_restore_test`):
+    - Table count exact match (72 source == 72 restored).
+    - Row count exact 100% parity across all 72 tables.
+    - Migration count exact match (16 migrations).
+    - Financial balance exact parity: Dr ₹3,494,664.07 == Cr ₹3,494,664.07 (Diff: ₹0.00).
+    - Document metadata and SHA-256 binary checksums verified down to the byte on all physical files.
+    - Automated feature test created: `tests/Feature/DisasterRecoveryRestoreTest.php`.
+- [x] Application-Wide Security Hardening:
+  - **Storage Hardening**: Disabled Laravel's unauthenticated `serve => false` route on the private `local` disk (`storage/app/private`), eliminating any accidental bypass vector.
+  - **Scanner Fail-Closed Mode**: Enforced strict fail-closed security in `ConfigurableFileScanner.php` and `DocumentService.php`. When fail-closed is active, unverified or errored files are blocked at upload and streaming/download access is rejected (HTTP 423 Locked). Quarantined status added to `ScanResult.php`.
+  - **Active Membership Enforcement**: Updated `User::currentCompany()`, `WorkspaceController::switch()`, and `workspace.select` to enforce `wherePivot('status', 'active')`, immediately denying workspace access to suspended or revoked accounts.
+  - **Multi-Tenant Global Search Fix**: Resolved SQL operator precedence vulnerability in `GlobalSearchController.php` by wrapping `orWhere` clauses inside parameter-grouped closures `where(function ($query) { ... })`, and added role permission gates hiding employees and billing invoices from unauthorized users.
+  - **Confidential Compensation Masking**: Added `authorizeEmployeeView()` in `EmployeeController.php` and masked daily wage and monthly salary from non-HR/finance roles in `employees/show.blade.php`.
+  - **Honest Dashboard Calculation**: Replaced hardcoded fallback amounts (`4520000.00` and `2596000.00`) in `DashboardController.php` with honest database-backed `0.00` sums.
+  - **Rate Limiting (Throttle)**: Added rate limiters on login (`throttle:5,1`), password reset (`throttle:3,1`), document uploads/replace (`throttle:30,1`), document preview/download (`throttle:60,1`), and health checks (`throttle:60,1`).
+  - **Trusted Proxies**: Configured `$middleware->trustProxies(at: '*')` in `bootstrap/app.php` for Nginx reverse proxy / Cloudflare compatibility.
+  - **Custom Error Pages**: Created Stitch-aligned branded error views: `errors/403.blade.php`, `errors/404.blade.php`, `errors/500.blade.php`, `errors/503.blade.php`.
+  - **Production Health Monitoring**: Built `/health` JSON endpoint in `HealthCheckController.php` monitoring database latency, storage disk free space, cache, Reverb WebSocket, and ClamAV status without leaking credentials.
+- [x] Automated Feature Tests (`tests/Feature/ProductionSecurityHardeningTest.php` + `DisasterRecoveryRestoreTest.php`):
+  - Health check endpoint JSON response and secrets masking.
+  - Revoked/suspended company user access denial.
+  - Global search multi-tenant operator precedence protection.
+  - Employee compensation masking from unauthorized roles.
+  - Scanner fail-closed mode and quarantined file access rejection.
+  - Full suite: **151 tests, 943 assertions, 0 errors, 100% passing**.
+- [x] Full-Workflow Browser E2E Audit (`tests/Browser/e2e_production_readiness_audit.js` - 10 screenshots verified):
+  - `prod_01_auth_role_dashboard.png`: Super Admin / Owner dashboard navigation with live INR metrics.
+  - `prod_02_tenant_isolation_denied.png`: Cross-company IDOR access test returning 404 Not Found without metadata leakage.
+  - `prod_03_pr_po_attached_flow.png`: Procurement Purchase Order with attached supplier challan and delivery evidence.
+  - `prod_04_workforce_payroll_security.png`: Site supervisor muster roll vs confidential payroll gate (HTTP 403).
+  - `prod_05_billing_retention_subcontractor.png`: Client billing & retention release register with tax breakdown.
+  - `prod_06_journal_immutability_trial_balance.png`: Reconciled Trial Balance showing exact Dr == Cr balance (₹3,494,664.07).
+  - `prod_07_document_security_preview.png`: Document Centre inline streaming preview modal with security headers.
+  - `prod_08_reverb_live_notifications.png`: Notification Centre with live WebSocket connection indicator.
+  - `prod_09_health_check_operational.png`: Operational `/health` JSON monitor verifying infrastructure health.
+  - `prod_10_mobile_responsive_views.png`: Mobile viewport (375x812) responsive view of dashboard and critical actions.
+
+---
+
+### Phase 12: Go-Live Gate Closure & Production Handover (Completed & Verified)
+- [x] Production Fail-Closed Scanner Hardening:
+  - Hardened `config/filesystems.php` and `ConfigurableFileScanner.php`: `fail_closed` forced `true` and `allow_unscanned_dev` forced `false` under `APP_ENV=production`.
+  - Added `Document::isCleanForAccess()` and gated `DocumentService::streamPreview()` & `download()` (HTTP 423 Locked on unscanned/flagged files).
+  - Updated `HealthCheckController.php` with dynamic scanner status reflection.
+- [x] Production Demo Credential Suppression:
+  - Hardened `resources/views/auth/login.blade.php` to restrict demo pre-fill and credentials card strictly to `local` / `testing` environments.
+- [x] Production Reverse Proxy Trust Restriction:
+  - Hardened `bootstrap/app.php` to govern trusted proxies via `TRUSTED_PROXIES` environment variable rather than indiscriminate wildcard (`*`).
+- [x] Automated Feature Tests (`tests/Feature/GoLiveGateClosureTest.php`):
+  - 6 tests, 32 assertions, 0 errors. Full suite: **157 passed, 975 assertions**.
+
+---
+
+### Phase 13: Release Engineering, Automated Backups & Production Acceptance (Completed & Verified)
+- [x] Runtime & Framework Reconciliation:
+  - Reconciled documentation against actual runtime: PHP 8.5.11 (cli), Composer 2.10.3, Laravel 13.37.0, MySQL 26.7.0.
+  - Eliminated stale "Laravel 11/12" and "PHP 8.3" references across all documentation.
+- [x] Durable Automated Backup Engine:
+  - Implemented `config/backup.php` with configurable destination (`storage/app/backups`), AES-256-CBC encryption (`BACKUP_ENCRYPT`), retention tiers (24 hourly, 30 daily, 12 monthly), and RPO threshold (120m).
+  - Developed `BackupManager.php`: Atomic database dump (`.tmp` to `.sql`), private document tarball (`storage.tar.gz`), OpenSSL AES-256-CBC envelope encryption, SHA-256 binary checksums, and atomic `manifest.json`.
+  - Built Artisan commands:
+    - `php artisan buildflow:backup:create {--frequency=hourly|daily|monthly} {--encrypt}`
+    - `php artisan buildflow:backup:validate {backup_id?}`
+    - `php artisan buildflow:verify-recovery {--backup=latest}`
+  - Implemented overlapping job prevention via atomic cache lock (`buildflow_backup_running_lock`).
+  - Implemented verified recovery copy retention protection (`is_protected = true`).
+- [x] RPO (1 Hour) & RTO (15 Min) SLA Enforcement & Scheduling:
+  - Configured `routes/console.php`: Hourly backup creation (`hourly()`), daily backup validation (`dailyAt('02:00')`), and weekly isolated restore test (`weeklyOn(0, '03:00')`).
+  - Added backup freshness and RPO status monitoring to `HealthCheckController.php` (`durable_backups`).
+- [x] Isolated Restore & Safe Disaster Recovery Verification:
+  - Verified restore from durable backups into disposable schema `buildflow_restore_test` and temporary storage.
+  - Verified 100% table parity (72 tables), row count parity, 16 migrations, balanced Trial Balance (Dr == Cr ₹3,494,664.07), and SHA-256 binary hash digest matches for all document attachments.
+  - Zero destructive operations on the live application database.
+- [x] Release Preflight & Go-Live Gate (`php artisan buildflow:preflight {--strict}`):
+  - Audits 13 critical operational domains: Environment/Debug, APP_KEY, DB & Migrations (0 pending), General Ledger Trial Balance invariant (balanced), Storage privacy (`serve => false`), ClamAV fail-closed reachability, HTTPS & secure cookies, Trusted Proxies, Reverb daemon & origins, Durable Backups (age, validation, restore test), Frontend assets (`manifest.json`), Demo accounts, and Host Infrastructure.
+  - Supports dual modes: advisory local development (exit 0) and strict production (exit 1 on missing production infra).
+- [x] Automated Feature Tests (`tests/Feature/AutomatedBackupAndReleaseAcceptanceTest.php`):
+  - 7 comprehensive tests verifying creation, tampering detection, AES-256 encryption, retention protection of verified recovery copy, overlap locking, health check reporting, and dual-mode preflight audit.
+  - Full PHPUnit Suite: **164 tests, 1007 assertions, 0 errors, 100% passing**.
+  - Frontend production build (`npm run build`): Vite v8.3.4 (286ms, 110.97 kB CSS / 352.54 kB JS).
 
 

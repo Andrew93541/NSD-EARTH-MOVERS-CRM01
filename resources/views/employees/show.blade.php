@@ -20,8 +20,12 @@
         <div class="soft-card p-5 space-y-3">
             <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider mb-2">Compensation & Work Parameters</h3>
             <div class="flex justify-between text-xs"><span class="text-gray-400">Employment:</span> <strong class="text-gray-900 uppercase text-[10px]">{{ str_replace('_', ' ', $employee->employment_type) }}</strong></div>
-            <div class="flex justify-between text-xs"><span class="text-gray-400">Daily Wage:</span> <strong class="text-gray-900">₹{{ number_format($employee->daily_wage_rate, 2) }}</strong></div>
-            <div class="flex justify-between text-xs"><span class="text-gray-400">Monthly Salary:</span> <strong class="text-gray-900">₹{{ number_format($employee->monthly_salary, 2) }}</strong></div>
+            @if(in_array(auth()->user()?->currentRole()?->slug, ['owner', 'admin', 'hr_officer', 'accountant']))
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Daily Wage:</span> <strong class="text-gray-900">₹{{ number_format($employee->daily_wage_rate, 2) }}</strong></div>
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Monthly Salary:</span> <strong class="text-gray-900">₹{{ number_format($employee->monthly_salary, 2) }}</strong></div>
+            @else
+                <div class="flex justify-between text-xs"><span class="text-gray-400">Compensation:</span> <span class="text-gray-400 italic text-[11px]">Confidential (Restricted to HR)</span></div>
+            @endif
             <div class="flex justify-between text-xs"><span class="text-gray-400">Assigned Site:</span> <strong class="text-gray-900">{{ $employee->assignedSite->name ?? 'Central Pool' }}</strong></div>
         </div>
 
@@ -57,5 +61,19 @@
             </div>
         </div>
     </div>
+
+    <!-- Confidential HR Dossier & KYC Documents -->
+    <x-document-manager 
+        :record="$employee" 
+        type="employee" 
+        title="Confidential Personnel Dossier & KYC Vault"
+        :categories="[
+            'identity_proof' => 'Government Photo ID (Aadhaar / Voter ID)',
+            'business_kyc' => 'PAN Card Copy',
+            'bank_mandate' => 'Bank Passbook / Cancelled Cheque',
+            'contract' => 'Employment Contract / Appointment Letter',
+            'general' => 'Academic / Trade Certificate / Police Verification',
+        ]"
+    />
 </div>
 @endsection

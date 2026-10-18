@@ -166,6 +166,20 @@
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- Delivery Challan & Weighbridge Slip -->
+                        <div class="pt-2 border-t border-gray-200/60">
+                            <x-document-manager 
+                                :record="$grn" 
+                                type="goods_receipt" 
+                                title="GRN Delivery Challan & Weighbridge Slip"
+                                :categories="[
+                                    'delivery_challan' => 'Physical Signed Delivery Challan',
+                                    'inspection_photo' => 'Material Unloading / Damage Photograph',
+                                    'general' => 'Gate Inward Supporting Note',
+                                ]"
+                            />
+                        </div>
                     </div>
                 @endforeach
             </div>
@@ -261,5 +275,19 @@
             </div>
         @endif
     </div>
+
+    <!-- PO & Vendor Delivery Supporting Documents -->
+    <x-document-manager 
+        :record="$order" 
+        type="purchase_order" 
+        title="PO Agreements, Delivery Challans & Vendor Invoices"
+        :categories="[
+            'supplier_invoice' => 'Supplier Commercial Tax Invoice',
+            'delivery_challan' => 'Vendor Delivery Challan / Gate Pass',
+            'contract' => 'Signed PO Copy / Commercial Agreement',
+            'inspection_photo' => 'Material Inspection & Unloading Evidence',
+            'general' => 'General Procurement Attachment',
+        ]"
+    />
 </div>
 @endsection

@@ -15,7 +15,7 @@ class WorkspaceController extends Controller
     public function select(): View
     {
         $user = Auth::user();
-        $companies = $user->companies;
+        $companies = $user->companies()->wherePivot('status', 'active')->get();
 
         return view('workspace.select', compact('companies', 'user'));
     }
@@ -24,9 +24,9 @@ class WorkspaceController extends Controller
     {
         $user = Auth::user();
 
-        // Enforce server-side tenant membership verification
-        if (! $user->companies()->where('companies.id', $company->id)->exists()) {
-            abort(403, 'You do not have access to this company workspace.');
+        // Enforce server-side tenant membership verification with active status check
+        if (! $user->companies()->where('companies.id', $company->id)->wherePivot('status', 'active')->exists()) {
+            abort(403, 'You do not have an active membership in this company workspace.');
         }
 
         session(['current_company_id' => $company->id]);

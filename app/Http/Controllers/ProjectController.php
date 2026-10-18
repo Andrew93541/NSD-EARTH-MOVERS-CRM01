@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\Client;
 use App\Models\Project;
 use App\Models\User;
@@ -99,7 +100,20 @@ class ProjectController extends Controller
             'description' => 'nullable|string',
         ]);
 
+        $oldStatus = $project->status;
         $project->update($validated);
+
+        if ($oldStatus !== $validated['status']) {
+            AppNotification::create([
+                'company_id' => $project->company_id,
+                'user_id' => $project->manager_id,
+                'title' => 'Project Status Changed',
+                'message' => "Project '{$project->name}' status changed to " . ucfirst(str_replace('_', ' ', $validated['status'])) . ".",
+                'type' => in_array($validated['status'], ['at_risk', 'delayed']) ? 'danger' : 'info',
+                'action_url' => route('projects.show', $project),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('projects.show', $project)->with('success', 'Project updated successfully.');
     }

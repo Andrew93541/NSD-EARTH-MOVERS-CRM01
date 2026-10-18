@@ -3,7 +3,15 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'BuildFlow - Construction CRM' }}</title>
+    <script>
+        window.buildFlowConfig = {
+            userId: {{ Auth::id() ?? 'null' }},
+            companyId: {{ Auth::user()?->company_id ?? session('current_company_id') ?? Auth::user()?->currentCompany()?->id ?? 'null' }},
+            reverbKey: '{{ config('reverb.apps.apps.0.key', env('REVERB_APP_KEY')) }}'
+        };
+    </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="min-h-screen p-2 sm:p-4 lg:p-6 flex items-center justify-center bg-[#dbe2ea]">
@@ -200,6 +208,16 @@
                             <span>Double-Entry Ledger</span>
                         </a>
                         @endif
+
+                        <a href="{{ route('notifications.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('notifications.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                            <span>Notifications</span>
+                        </a>
+
+                        <a href="{{ route('documents.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('documents.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                            <span>Document Centre</span>
+                        </a>
                     </div>
                 </div>
                 @endif
@@ -259,6 +277,153 @@
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     <span>New Project</span>
                 </a>
+
+                <!-- Notification Bell & Dropdown Component -->
+                <div x-data="notificationCenter()"
+                     class="relative"
+                     @click.outside="open = false"
+                     @keydown.escape.window="open = false"
+                     id="header-notification-center">
+
+                    <!-- Bell Trigger Button -->
+                    <button @click="open = !open"
+                            type="button"
+                            id="notification-bell-btn"
+                            class="relative w-9 h-9 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 flex items-center justify-center text-gray-600 hover:text-gray-900 transition shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            aria-label="View notifications">
+                        <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                        </svg>
+
+                        <!-- Dynamic Unread Badge -->
+                        <span x-show="unreadCount > 0"
+                              x-transition
+                              x-text="unreadCount > 9 ? '9+' : unreadCount"
+                              id="notification-badge-count"
+                              class="absolute -top-1 -right-1 px-1.5 min-w-[18px] h-[18px] text-[10px] font-black leading-none flex items-center justify-center rounded-full bg-orange-600 text-white shadow-sm ring-2 ring-white">
+                        </span>
+
+                        <!-- Live Pulse on Real-Time Event Arrival -->
+                        <span x-show="hasNewPing"
+                              class="absolute top-0 right-0 w-2.5 h-2.5 bg-orange-500 rounded-full animate-ping">
+                        </span>
+
+                        <!-- WebSocket Connection Status Dot -->
+                        <span class="absolute bottom-1 right-1 w-2 h-2 rounded-full ring-1 ring-white"
+                              id="websocket-status-dot"
+                              :class="{
+                                  'bg-emerald-500': connectionState === 'connected',
+                                  'bg-amber-500 animate-pulse': connectionState === 'connecting',
+                                  'bg-gray-400': connectionState === 'disconnected' || connectionState === 'offline'
+                              }"
+                              :title="'WebSocket status: ' + connectionState">
+                        </span>
+                    </button>
+
+                    <!-- Dropdown Panel (Stitch Precision Ops 10px Rounded Card) -->
+                    <div x-show="open"
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 scale-95 translate-y-1"
+                         x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-100"
+                         x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+                         x-transition:leave-end="opacity-0 scale-95 translate-y-1"
+                         id="notification-dropdown-menu"
+                         class="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-lg border border-slate-200 z-50 overflow-hidden divide-y divide-slate-100"
+                         style="display: none;">
+
+                        <!-- Dropdown Header -->
+                        <div class="px-4 py-3 bg-slate-50/80 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold text-slate-900 uppercase tracking-wider">Notifications</span>
+                                <!-- Live Connection Indicator Badge -->
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold"
+                                      :class="{
+                                          'bg-emerald-100 text-emerald-800 border border-emerald-200': connectionState === 'connected',
+                                          'bg-amber-100 text-amber-800 border border-amber-200': connectionState === 'connecting',
+                                          'bg-slate-100 text-slate-600 border border-slate-200': connectionState === 'disconnected' || connectionState === 'offline'
+                                      }">
+                                    <span class="w-1.5 h-1.5 rounded-full"
+                                          :class="{
+                                              'bg-emerald-500': connectionState === 'connected',
+                                              'bg-amber-500 animate-pulse': connectionState === 'connecting',
+                                              'bg-slate-400': connectionState === 'disconnected' || connectionState === 'offline'
+                                          }"></span>
+                                    <span x-text="connectionState === 'connected' ? 'Live (Reverb)' : (connectionState === 'connecting' ? 'Reconnecting...' : 'Sync Fallback')"></span>
+                                </span>
+                            </div>
+
+                            <button x-show="unreadCount > 0"
+                                    @click="markAllAsRead()"
+                                    type="button"
+                                    class="text-[11px] font-semibold text-orange-600 hover:text-orange-700 cursor-pointer">
+                                Mark all read
+                            </button>
+                        </div>
+
+                        <!-- Notification Feed Items -->
+                        <div class="max-h-80 overflow-y-auto divide-y divide-slate-100" id="notification-feed-list">
+                            <template x-for="item in notifications" :key="item.id">
+                                <div @click="openRecord(item)"
+                                     class="p-3 transition cursor-pointer flex items-start gap-3"
+                                     :class="!item.is_read ? 'bg-orange-50/30 hover:bg-orange-50/60' : 'hover:bg-slate-50'">
+                                    <!-- Indicator Dot -->
+                                    <div class="mt-1 flex-shrink-0">
+                                        <span class="w-2.5 h-2.5 rounded-full block"
+                                              :class="{
+                                                  'bg-emerald-500 ring-2 ring-emerald-100': item.type === 'success',
+                                                  'bg-red-500 ring-2 ring-red-100': item.type === 'danger',
+                                                  'bg-amber-500 ring-2 ring-amber-100': item.type === 'warning',
+                                                  'bg-blue-500 ring-2 ring-blue-100': item.type === 'info'
+                                              }"></span>
+                                    </div>
+
+                                    <!-- Content -->
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center justify-between gap-1">
+                                            <span class="text-xs truncate"
+                                                  :class="!item.is_read ? 'font-bold text-slate-900' : 'font-medium text-slate-700'"
+                                                  x-text="item.title"></span>
+                                            <span class="text-[10px] text-slate-400 whitespace-nowrap" x-text="item.created_at_human"></span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-500 line-clamp-2 mt-0.5 leading-snug" x-text="item.message"></p>
+                                    </div>
+
+                                    <!-- Single Mark Read -->
+                                    <button x-show="!item.is_read"
+                                            @click.stop="markSingleRead(item)"
+                                            type="button"
+                                            title="Mark as read"
+                                            class="p-1 text-slate-300 hover:text-slate-600 rounded transition cursor-pointer">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </template>
+
+                            <!-- Empty State -->
+                            <div x-show="notifications.length === 0" class="py-8 text-center px-4">
+                                <svg class="w-8 h-8 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                                </svg>
+                                <div class="text-xs font-semibold text-slate-700">All caught up!</div>
+                                <div class="text-[11px] text-slate-400 mt-0.5">No unread notifications right now.</div>
+                            </div>
+                        </div>
+
+                        <!-- Dropdown Footer -->
+                        <div class="px-4 py-2.5 bg-slate-50/60 text-center">
+                            <a href="{{ route('notifications.index') }}"
+                               class="text-xs font-semibold text-slate-700 hover:text-orange-600 transition flex items-center justify-center gap-1">
+                                <span>Open Notification Centre</span>
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- User Avatar -->
                 <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-400 text-white font-bold text-xs flex items-center justify-center shadow-sm">

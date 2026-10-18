@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\PayrollPeriod;
@@ -179,6 +180,16 @@ class PayrollController extends Controller
             return $period;
         });
 
+        AppNotification::create([
+            'company_id' => $period->company_id,
+            'user_id' => null,
+            'title' => 'Payroll Batch Submitted for Review',
+            'message' => "Payroll period '{$period->title}' submitted for authorized review (" . count($activeEmployees) . " employees).",
+            'type' => 'info',
+            'action_url' => route('payroll.show', $period),
+            'is_read' => false,
+        ]);
+
         return redirect()->route('payroll.show', $period)
             ->with('success', "Payroll batch '{$period->title}' calculated successfully for " . count($activeEmployees) . " employees.");
     }
@@ -207,6 +218,18 @@ class PayrollController extends Controller
         ]);
 
         $period->records()->update(['status' => 'approved']);
+
+        if ($period->created_by) {
+            AppNotification::create([
+                'company_id' => $period->company_id,
+                'user_id' => $period->created_by,
+                'title' => 'Payroll Batch Approved',
+                'message' => "Payroll batch '{$period->title}' has been approved.",
+                'type' => 'success',
+                'action_url' => route('payroll.show', $period),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('payroll.show', $period)
             ->with('success', "Payroll batch '{$period->title}' approved by " . (Auth::user()?->name ?? 'Authorized Officer'));

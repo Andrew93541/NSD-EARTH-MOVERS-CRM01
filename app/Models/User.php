@@ -41,21 +41,33 @@ class User extends Authenticatable
     {
         $companyId = session('current_company_id');
         if ($companyId) {
-            return $this->companies()->where('companies.id', $companyId)->first();
+            $company = $this->companies()
+                ->where('companies.id', $companyId)
+                ->wherePivot('status', 'active')
+                ->first();
+            if ($company) {
+                return $company;
+            }
         }
 
-        $primary = $this->companies()->wherePivot('is_primary', true)->first();
+        $primary = $this->companies()
+            ->wherePivot('is_primary', true)
+            ->wherePivot('status', 'active')
+            ->first();
         if ($primary) {
             session(['current_company_id' => $primary->id]);
             return $primary;
         }
 
-        $first = $this->companies()->first();
+        $first = $this->companies()
+            ->wherePivot('status', 'active')
+            ->first();
         if ($first) {
             session(['current_company_id' => $first->id]);
             return $first;
         }
 
+        session()->forget('current_company_id');
         return null;
     }
 

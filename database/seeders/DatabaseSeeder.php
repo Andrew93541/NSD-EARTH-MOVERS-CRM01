@@ -911,12 +911,12 @@ class DatabaseSeeder extends Seeder
             'accumulated_depr_account_id' => $accumDeprAcc->id,
             'depr_expense_account_id' => $deprExpAcc->id,
             'project_id' => $project1->id,
-            'loan_id' => $loan->id,
+            'loan_id' => $excavatorLoan->id,
             'location' => 'Riverside Residency Site Yard, Nagpur',
             'created_by' => $admin->id,
         ]);
 
-        $loan->update([
+        $excavatorLoan->update([
             'fixed_asset_id' => $asset1->id,
             'liability_account_id' => $loanLiabilityAcc->id,
             'interest_account_id' => $interestExpAcc->id,
@@ -990,7 +990,7 @@ class DatabaseSeeder extends Seeder
             'subcontractor_code' => 'SC-2026-001',
             'work_categories' => ['earthmoving', 'excavation', 'roadworks'],
             'gstin' => '29AABCA9988D1Z3',
-            'pan_number' => 'AABCA9988D',
+            'pan' => 'AABCA9988D',
             'tds_section' => '194C_company_2%',
             'bank_name' => 'HDFC Bank Ltd',
             'bank_account_number' => '50200099887766',

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\BankAccount;
 use App\Models\Client;
 use App\Models\ClientCompletionCertificate;
@@ -345,6 +346,18 @@ class RetentionController extends Controller
             'submission_date' => Carbon::today(),
         ]);
 
+        if ($claim->contract?->project?->manager_id) {
+            AppNotification::create([
+                'company_id' => $claim->contract->company_id,
+                'user_id' => $claim->contract->project->manager_id,
+                'title' => 'Retention Claim Submitted',
+                'message' => "Retention release claim {$claim->claim_number} submitted for client submission.",
+                'type' => 'info',
+                'action_url' => route('retention.claims.show', $claim),
+                'is_read' => false,
+            ]);
+        }
+
         return back()->with('success', "Claim {$claim->claim_number} submitted for internal management review.");
     }
 
@@ -368,6 +381,18 @@ class RetentionController extends Controller
                 $request->filled('approved_amount') ? (float) $request->input('approved_amount') : null
             );
 
+            if ($claim->created_by) {
+                AppNotification::create([
+                    'company_id' => $claim->contract->company_id,
+                    'user_id' => $claim->created_by,
+                    'title' => 'Retention Claim Approved',
+                    'message' => "Retention claim {$claim->claim_number} approved for release.",
+                    'type' => 'success',
+                    'action_url' => route('retention.claims.show', $claim),
+                    'is_read' => false,
+                ]);
+            }
+
             return back()->with('success', "Retention Release Claim {$approved->claim_number} has been approved.");
         } catch (\InvalidArgumentException $e) {
             return back()->with('error', $e->getMessage());
@@ -387,6 +412,18 @@ class RetentionController extends Controller
 
         try {
             $rejected = RetentionService::rejectClaim(Auth::user(), $claim, $request->input('rejection_reason'));
+
+            if ($claim->created_by) {
+                AppNotification::create([
+                    'company_id' => $claim->contract->company_id,
+                    'user_id' => $claim->created_by,
+                    'title' => 'Retention Claim Rejected',
+                    'message' => "Retention claim {$claim->claim_number} was rejected.",
+                    'type' => 'danger',
+                    'action_url' => route('retention.claims.show', $claim),
+                    'is_read' => false,
+                ]);
+            }
 
             return back()->with('warning', "Retention Release Claim {$rejected->claim_number} has been rejected.");
         } catch (\InvalidArgumentException $e) {
@@ -440,6 +477,18 @@ class RetentionController extends Controller
 
         try {
             $payment = RetentionService::recordClaimReceipt(Auth::user(), $claim, $validated);
+
+            if ($claim->created_by) {
+                AppNotification::create([
+                    'company_id' => $claim->contract->company_id,
+                    'user_id' => $claim->created_by,
+                    'title' => 'Retention Settlement Received',
+                    'message' => "Retention funds received for claim {$claim->claim_number}.",
+                    'type' => 'success',
+                    'action_url' => route('retention.claims.show', $claim),
+                    'is_read' => false,
+                ]);
+            }
 
             return back()->with('success', "Payment receipt {$payment->receipt_number} of ₹" . number_format($payment->amount, 2) . " recorded successfully.");
         } catch (\InvalidArgumentException $e) {

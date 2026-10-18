@@ -267,6 +267,19 @@
             </table>
         </div>
     </div>
+
+    <!-- Fixed Asset Registration, RC, Insurance & Capital Invoices -->
+    <x-document-manager 
+        :record="$asset" 
+        type="fixed_asset" 
+        title="Asset RC, Insurance Policies, Purchase Invoices & Service History"
+        :categories="[
+            'insurance_policy' => 'Insurance Policy / Registration Certificate (RC)',
+            'supplier_invoice' => 'Capital Equipment Purchase Invoice',
+            'inspection_photo' => 'Asset Condition & Serial Tag Photographs',
+            'general' => 'Warranty Cards & Maintenance Service Records',
+        ]"
+    />
 </div>
 
 <!-- Modal: Calculate Depreciation for this asset -->

@@ -33,7 +33,7 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -77,4 +77,24 @@ return [
         public_path('storage') => storage_path('app/public'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Anti-Malware & File Scanner Configuration
+    |--------------------------------------------------------------------------
+    |
+    | BuildFlow inspects uploaded files via ClamAV daemon. In production,
+    | fail-closed mode ensures unscanned or errored files are rejected.
+    |
+    */
+    'scanner' => [
+        'enabled' => env('SCANNER_ENABLED', true),
+        'fail_closed' => env('SCANNER_FAIL_CLOSED', env('APP_ENV') === 'production'),
+        'allow_unscanned_dev' => env('APP_ENV') === 'production' ? false : (bool) env('SCANNER_ALLOW_UNSCANNED_DEV', true),
+        'host' => env('CLAMAV_HOST', '127.0.0.1'),
+        'port' => (int) env('CLAMAV_PORT', 3310),
+        'socket' => env('CLAMAV_SOCKET', '/var/run/clamav/clamd.ctl'),
+        'timeout' => (int) env('CLAMAV_TIMEOUT', 3),
+    ],
+
 ];
+

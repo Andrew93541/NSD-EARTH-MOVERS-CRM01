@@ -56,17 +56,38 @@ Visual design and UI tokens are modeled directly after the **Google Stitch** pro
 12. **Global Search**:
     - Multi-entity search across projects, materials, client invoices, and workforce.
 
+13. **Real-Time Notifications & Operations Centre (Laravel Reverb & Echo)**:
+    - High-performance WebSocket broadcasting with Laravel Reverb and client-side Laravel Echo.
+    - Transaction-safe `$afterCommit = true` event broadcasting across procurement, payroll, billing, and site operations.
+    - Multi-tenant private channels (`company.{id}`, `App.Models.User.{id}`, `company.{id}.role.{role}`) with zero sensitive financial exposure.
+    - Google Stitch UI: top navigation bell with live pulse animation, dynamic unread badge, dropdown feed, and full Notification Centre (`/notifications`).
+    - Automatic reconnection recovery, window focus synchronization, and graceful HTTP fallback.
+
+14. **Secure Document & File Upload Management (Private Storage, Versioning & Immutability)**:
+    - Multi-tenant polymorphic attachment system embedded across 16 core business modules (Projects, Sites, PRs, POs, GRNs, RA Bills, Retention Claims, Work Orders, Subcontractor Bills, Fixed Assets, Loans, Employees, Payroll, and Journal Vouchers).
+    - Private disk storage (`storage/app/private`) with random UUID physical filenames and SHA-256 integrity checksums.
+    - Server-side `finfo` magic-byte inspection verifying binary headers against allowlist (`pdf`, `png`, `jpg`, `jpeg`, `dwg`, `dxf`, `xlsx`, `xls`, `csv`, `doc`, `docx`).
+    - Pluggable ClamAV anti-malware scanner pipeline (`ConfigurableFileScanner`) with safe development fallback.
+    - Statutory immutability locks blocking deletion on posted journals, certified subcontractor bills, approved client invoices, and settled loans.
+    - Confidential document vault for HR identity records (Aadhaar/PAN) and payroll NEFT batches restricted to authorized roles (`owner`, `admin`, `hr_officer`, `accountant`).
+    - Central Document Centre (`/documents`) with 4 KPI cards, multi-module filter, category filter, search, and inline streaming preview modal.
+
 ---
 
 ## 💻 Mandatory Technology Stack
 
-- **Backend**: PHP 8.3+ (Tested on PHP 8.5.11) & Laravel 11/12
+- **Backend**: PHP 8.3+ (Runtime: PHP 8.5.11) & Laravel 13.x (Installed: 13.37.0)
+- **File Security & Storage**: Private disk storage, UUID storage hashing, `finfo` MIME verification, ClamAV anti-malware pipeline
+- **Real-Time WebSockets**: Laravel Reverb (v1.12+) & Laravel Echo with Pusher client
 - **Database**: MySQL 8+ (InnoDB, strict foreign keys, indexes, decimal precision)
 - **Frontend / Templating**: Laravel Blade
 - **Styling**: Tailwind CSS (Stitch tokens, Plus Jakarta Sans, Inter)
 - **Interactions**: Alpine.js
 - **Charts**: Chart.js
-- **Automated Testing**: PHPUnit (27 tests, 151 assertions, 100% passing)
+- **Automated Testing**: PHPUnit (164 tests, 1007 assertions, 100% passing)
+- **Durable Automated Backups**: Multi-tier backup engine (`buildflow:backup:create`, `buildflow:backup:validate`, `buildflow:verify-recovery`) with AES-256 encryption and atomic locks
+- **Release Preflight & Gate**: Automated go-live audit command (`php artisan buildflow:preflight`)
+- **Operational Health**: Real-time `/health` endpoint reporting database, storage, cache, Reverb, scanner, and backup RPO status
 
 ---
 
@@ -74,7 +95,7 @@ Visual design and UI tokens are modeled directly after the **Google Stitch** pro
 
 ### 1. Prerequisites
 Ensure you have the following installed on your system:
-- **PHP 8.3+** with PDO MySQL, BCMath, cURL, MBString, and OpenSSL extensions
+- **PHP 8.3+** (PHP 8.5.11 recommended) with PDO MySQL, BCMath, cURL, MBString, and OpenSSL extensions
 - **Composer 2.x**
 - **MySQL 8.0+**
 - **Node.js 18+** and **npm**
@@ -141,6 +162,178 @@ php artisan serve
 ```
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
+### 9. Start Real-Time WebSocket Server (Laravel Reverb)
+In a separate terminal, launch the Reverb WebSocket daemon:
+```bash
+php artisan reverb:start --debug
+```
+Reverb listens by default on `0.0.0.0:8080` (or the port defined by `REVERB_PORT` in `.env`). Client connections over `ws://` / `wss://` are authenticated automatically through `/broadcasting/auth`.
+
+---
+
+## 🛡️ Production Operations & Disaster Recovery
+
+### 1. Durable Automated Backups (`buildflow:backup:*`)
+BuildFlow separates backup creation, integrity validation, and isolated restore testing into distinct, non-conflicting operational workflows:
+
+```bash
+# 1. Create a durable atomic backup (database + private document storage)
+php artisan buildflow:backup:create --frequency=hourly
+
+# Optional: Create an encrypted snapshot using AES-256-CBC
+php artisan buildflow:backup:create --frequency=daily --encrypt
+
+# 2. Validate checksums, archive readability, and encryption of latest backup
+php artisan buildflow:backup:validate
+
+# 3. Perform an isolated disaster recovery restore test (never overwrites live DB)
+php artisan buildflow:verify-recovery
+```
+
+### 2. Automated Scheduling (Laravel Scheduler)
+The system defines explicit schedules in `routes/console.php`:
+- **Hourly**: `buildflow:backup:create --frequency=hourly` (retains last 24 snapshots)
+- **Daily at 02:00**: `buildflow:backup:validate` (validates checksums and readability)
+- **Weekly on Sunday at 03:00**: `buildflow:verify-recovery` (proves isolated restore into `buildflow_restore_test` and protects the verified recovery copy)
+
+To activate on your server, ensure the standard Laravel cron entry is installed:
+```cron
+* * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1
+```
+
+### 3. Release Preflight & Go-Live Audit Gate (`buildflow:preflight`)
+Before promoting a build to production or opening live traffic, run the automated release preflight audit:
+
+```bash
+# Advisory / Development Mode (reports actionable warnings)
+php artisan buildflow:preflight
+
+# Strict Production Gate (returns exit code 1 if any mandatory requirement fails)
+php artisan buildflow:preflight --strict
+```
+
+### 4. Operational Health Check Endpoint (`GET /health`)
+A rate-limited operational health check endpoint is provided at `/health` for load balancers and uptime monitoring tools:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-10-18T11:50:17+00:00",
+  "environment": "local",
+  "total_latency_ms": 11.8,
+  "checks": {
+    "database": {
+      "status": "ok",
+      "latency_ms": 0.16
+    },
+    "storage": {
+      "status": "ok",
+      "free_space_gb": 363.89,
+      "latency_ms": 7.13
+    },
+    "cache": {
+      "status": "ok"
+    },
+    "broadcasting": {
+      "status": "ok",
+      "driver": "reverb"
+    },
+    "malware_scanner": {
+      "status": "dev_unscanned_active",
+      "enabled": true,
+      "fail_closed": false,
+      "effective_fail_closed": false,
+      "allow_unscanned_dev": true,
+      "message": "ClamAV daemon unreachable; explicit development unscanned mode active"
+    },
+    "durable_backups": {
+      "status": "ok",
+      "latest_backup_id": "backup_20261018_114834_hourly",
+      "age_minutes": 2,
+      "validation_status": "valid",
+      "restore_test_status": "passed",
+      "rpo_status": "satisfied"
+    }
+  }
+}
+```
+*Note: The health check returns HTTP 200 for healthy states and HTTP 503 Service Unavailable if critical services (database, storage, or fail-closed scanner in production) fail. Secrets, API keys, and internal system paths are strictly excluded.*
+
+### 5. Fail-Closed Anti-Malware Scanning
+In production environments, configure anti-malware fail-closed behavior in `.env`:
+```env
+SCANNER_ENABLED=true
+SCANNER_FAIL_CLOSED=true
+CLAMAV_HOST=127.0.0.1
+CLAMAV_PORT=3310
+```
+When `SCANNER_FAIL_CLOSED=true`, file uploads will be rejected with an error if the scanning daemon is unreachable, offline, or returns an ambiguous scan result, ensuring malicious payloads cannot bypass security controls under failure conditions.
+
+---
+
+## 📡 Real-Time Broadcasting & Production Deployment
+
+### 1. Reverb Configuration (`.env`)
+```env
+BROADCAST_CONNECTION=reverb
+
+REVERB_APP_ID=591534
+REVERB_APP_KEY=xiuwnqdp8buhu2e9gmp3
+REVERB_APP_SECRET=eoptqeavgmv9gp76mqn8
+REVERB_HOST="localhost"
+REVERB_PORT=8080
+REVERB_SCHEME=http
+REVERB_ALLOWED_ORIGINS="localhost,127.0.0.1,buildflow.local"
+
+VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+VITE_REVERB_HOST="${REVERB_HOST}"
+VITE_REVERB_PORT="${REVERB_PORT}"
+VITE_REVERB_SCHEME="${REVERB_SCHEME}"
+```
+*Note: In production, configure `REVERB_SCHEME=https` and `VITE_REVERB_SCHEME=https` with your domain hostname (`wss://`). Restrict `REVERB_ALLOWED_ORIGINS` to your production domain.*
+
+### 2. Process Supervision (Supervisor)
+To ensure the Reverb WebSocket daemon remains active and automatically restarts upon system reboots or failures, use Supervisor:
+
+Create `/etc/supervisor/conf.d/reverb.conf`:
+```ini
+[program:buildflow-reverb]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/buildflow/artisan reverb:start --host=0.0.0.0 --port=8080
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/supervisor/reverb.log
+stopwaitsecs=60
+```
+
+Start the supervised worker:
+```bash
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start buildflow-reverb:*
+```
+
+### 3. Nginx Reverse Proxy & TLS Termination (WSS)
+Route WebSocket upgrade requests through Nginx to terminate SSL on port 443:
+```nginx
+location /reverb/ {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 60;
+    proxy_connect_timeout 60;
+}
+```
+
 ---
 
 ## 🔑 Default Credentials
@@ -164,6 +357,10 @@ php artisan test
 ```
 
 ### Test Coverage Highlights:
+- `DisasterRecoveryRestoreTest.php`: Verifies that disaster recovery backup and isolated restore commands execute with zero downtime and preserve database integrity, migration status, and financial GL balance (2 tests, 12 assertions).
+- `ProductionSecurityHardeningTest.php`: Health check endpoint availability and secret masking, user company membership revocation immediate session termination, global search tenant isolation and operator precedence grouping, HR wage/salary masking, scanner fail-closed enforcement on upload and stream access denial on infected/quarantined files (5 tests, 30 assertions).
+- `DocumentManagementTest.php`: Authorized multi-tenant uploads, MIME magic-byte verification, 15MB file size limit, private storage UUID isolation, unauthenticated access denial, cross-tenant isolation (404/403 with zero metadata leakage), confidential HR vault restrictions, non-destructive replacement versioning, statutory immutability lock on posted journals, and Document Centre keyword/category filtering (11 tests, 64 assertions).
+- `RealTimeNotificationTest.php`: Private user channels, company tenant isolation, role/site permissions, safe non-sensitive payloads, `$afterCommit = true` transaction rollback isolation, and broadcaster downtime resilience (10 tests, 42 assertions).
 - `AuthenticationTest.php`: Login, password throttling, session regeneration, logout, and guest protection.
 - `MultiTenantIsolationTest.php`: Server-side tenant scoping, preventing cross-company access, and workspace switching authorization.
 - `ProjectManagementTest.php`: Project creation, validation, milestone tracking, and progress percentage updates.
@@ -183,7 +380,8 @@ Comprehensive architectural and design documents are located in [`docs/`](docs/)
 - [`docs/DATABASE.md`](docs/DATABASE.md) — Schema entity-relationship breakdown, decimal precisions, and indexes.
 - [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md) — State machine workflows for procurement, stock transfers, billing, and accounting.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — Tenant isolation guarantees, CSRF/XSS mitigations, password policies, and audit trails.
-- [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — Progress checklist across all 8 phases.
+- [`docs/NSDCRM_AUDIT_AND_ROADMAP.md`](docs/NSDCRM_AUDIT_AND_ROADMAP.md) — Full phase-by-phase implementation audit and go-live assessment report.
+- [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) — Progress checklist across all development phases.
 
 ---
 

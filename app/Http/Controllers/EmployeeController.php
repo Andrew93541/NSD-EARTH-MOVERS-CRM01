@@ -22,8 +22,20 @@ class EmployeeController extends Controller
         }
     }
 
+    protected function authorizeEmployeeView(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $canView = $user && ($user->hasPermission('*') || $user->hasPermission('employees.*') || $user->hasPermission('employees.view') || in_array($roleSlug, ['owner', 'admin', 'hr_officer', 'project_manager']));
+        if (! $canView) {
+            abort(403, 'Unauthorized. Employee profiles are restricted to authorized personnel.');
+        }
+    }
+
     public function index(Request $request): View
     {
+        $this->authorizeEmployeeView();
+
         $query = Employee::with(['assignedSite', 'shift']);
 
         if ($request->filled('type')) {
@@ -83,6 +95,8 @@ class EmployeeController extends Controller
 
     public function show(Employee $employee): View
     {
+        $this->authorizeEmployeeView();
+
         $employee->load(['assignedSite', 'shift', 'attendanceRecords' => function ($q) {
             $q->latest('attendance_date')->take(30);
         }]);

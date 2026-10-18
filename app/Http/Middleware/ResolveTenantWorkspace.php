@@ -16,6 +16,9 @@ class ResolveTenantWorkspace
             $company = $user->currentCompany();
 
             if (! $company && ! $request->routeIs('workspace.*', 'logout')) {
+                if ($request->is('broadcasting/auth', 'api/*') || $request->expectsJson()) {
+                    abort(403, 'No active company workspace assigned or membership revoked.');
+                }
                 return redirect()->route('workspace.select');
             }
 

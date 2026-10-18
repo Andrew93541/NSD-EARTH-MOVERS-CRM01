@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\GoodsReceipt;
 use App\Models\GoodsReceiptItem;
 use App\Models\Material;
@@ -122,6 +123,18 @@ class ProcurementController extends Controller
             'tax_percent' => 18.00,
             'total_price' => $total,
         ]);
+
+        if ($po->project?->manager_id) {
+            AppNotification::create([
+                'company_id' => $po->project->company_id,
+                'user_id' => $po->project->manager_id,
+                'title' => 'Purchase Order Issued',
+                'message' => "Purchase Order {$po->po_number} generated for {$po->supplier->name}.",
+                'type' => 'info',
+                'action_url' => route('procurement.show', $po),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('procurement.show', $po)->with('success', "Purchase Order {$po->po_number} generated and approved.");
     }
@@ -290,6 +303,18 @@ class ProcurementController extends Controller
             $order->update([
                 'status' => $allCompleted ? 'completed' : 'partially_received',
             ]);
+
+            if ($order->created_by || $order->project?->manager_id) {
+                AppNotification::create([
+                    'company_id' => $order->project?->company_id ?? Auth::user()->currentCompany()?->id,
+                    'user_id' => $order->created_by ?: $order->project?->manager_id,
+                    'title' => 'Goods Receipt Recorded',
+                    'message' => "Goods Receipt {$grn->grn_number} recorded for PO {$order->po_number}.",
+                    'type' => 'success',
+                    'action_url' => route('procurement.show', $order),
+                    'is_read' => false,
+                ]);
+            }
         });
 
         return redirect()->route('procurement.show', $order)

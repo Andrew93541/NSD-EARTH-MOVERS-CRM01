@@ -25,22 +25,31 @@ class GlobalSearchController extends Controller
         $suppliers = collect();
 
         if (strlen($q) >= 2) {
-            $projects = Project::where('name', 'like', "%{$q}%")
-                ->orWhere('code', 'like', "%{$q}%")
-                ->orWhere('location', 'like', "%{$q}%")
-                ->take(5)->get();
+            $user = $request->user();
 
-            $materials = Material::where('name', 'like', "%{$q}%")
-                ->orWhere('code', 'like', "%{$q}%")
-                ->take(5)->get();
+            $projects = Project::where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                    ->orWhere('code', 'like', "%{$q}%")
+                    ->orWhere('location', 'like', "%{$q}%");
+            })->take(5)->get();
 
-            $employees = Employee::where('first_name', 'like', "%{$q}%")
-                ->orWhere('last_name', 'like', "%{$q}%")
-                ->orWhere('code', 'like', "%{$q}%")
-                ->take(5)->get();
+            $materials = Material::where(function ($query) use ($q) {
+                $query->where('name', 'like', "%{$q}%")
+                    ->orWhere('code', 'like', "%{$q}%");
+            })->take(5)->get();
 
-            $invoices = ClientInvoice::where('invoice_number', 'like', "%{$q}%")
-                ->take(5)->get();
+            if ($user && ($user->hasPermission('employees.view') || $user->hasPermission('employees.*') || $user->hasPermission('*') || in_array($user->currentRole()?->slug, ['owner', 'admin', 'hr_officer', 'project_manager']))) {
+                $employees = Employee::where(function ($query) use ($q) {
+                    $query->where('first_name', 'like', "%{$q}%")
+                        ->orWhere('last_name', 'like', "%{$q}%")
+                        ->orWhere('code', 'like', "%{$q}%");
+                })->take(5)->get();
+            }
+
+            if ($user && ($user->hasPermission('billing.view') || $user->hasPermission('billing.*') || $user->hasPermission('finance.*') || $user->hasPermission('*') || in_array($user->currentRole()?->slug, ['owner', 'admin', 'accountant']))) {
+                $invoices = ClientInvoice::where('invoice_number', 'like', "%{$q}%")
+                    ->take(5)->get();
+            }
 
             $suppliers = Supplier::where('name', 'like', "%{$q}%")
                 ->take(5)->get();

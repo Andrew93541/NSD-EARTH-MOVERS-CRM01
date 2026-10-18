@@ -21,4 +21,11 @@ class AppNotification extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    protected static function booted(): void
+    {
+        static::created(function (AppNotification $notification) {
+            \App\Services\NotificationService::broadcastNotification($notification);
+        });
+    }
 }

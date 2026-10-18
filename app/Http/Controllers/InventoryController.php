@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\Material;
 use App\Models\MaterialCategory;
 use App\Models\StockLedgerEntry;
@@ -163,6 +164,19 @@ class InventoryController extends Controller
                 'balance_quantity' => $targetStock + $validated['quantity'],
                 'created_by' => Auth::id(),
             ]);
+
+            $remainingStock = $availableStock - $validated['quantity'];
+            if ($remainingStock <= (float) $material->reorder_level) {
+                AppNotification::create([
+                    'company_id' => $material->company_id ?? Auth::user()->currentCompany()?->id,
+                    'user_id' => null,
+                    'title' => 'Material Stock Shortage Alert',
+                    'message' => "Warning: Stock for {$material->name} ({$material->item_code}) in {$sourceWarehouse->name} is at {$remainingStock} {$material->unit_of_measure} (reorder level: {$material->reorder_level}).",
+                    'type' => 'warning',
+                    'action_url' => route('inventory.index'),
+                    'is_read' => false,
+                ]);
+            }
         });
 
         return redirect()->route('inventory.ledger')->with('success', "Transfer of {$validated['quantity']} {$material->unit_of_measure} dispatched and recorded atomically.");

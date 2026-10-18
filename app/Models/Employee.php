@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Traits\BelongsToCompany;
+use App\Models\Traits\HasDocuments;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Employee extends Model
 {
-    use HasFactory, SoftDeletes, BelongsToCompany;
+    use HasFactory, SoftDeletes, BelongsToCompany, HasDocuments;
 
     protected $guarded = ['id'];
 

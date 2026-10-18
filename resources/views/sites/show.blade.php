@@ -46,5 +46,19 @@
             @endforelse
         </div>
     </div>
+
+    <!-- Site Documents & Inspection Evidence -->
+    <x-document-manager 
+        :record="$site" 
+        type="site" 
+        title="Site Safety Permits & Field Records"
+        :categories="[
+            'permit' => 'Site Entry / Blasting / Work Permit',
+            'inspection_report' => 'Safety & Quality Inspection Report',
+            'progress_photo' => 'Site Progress / Excavation Photo',
+            'drawing' => 'Site Layout / Survey Plan',
+            'general' => 'Site Correspondence / Memo',
+        ]"
+    />
 </div>
 @endsection

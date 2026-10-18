@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\BankAccount;
 use App\Models\MeasurementBookEntry;
 use App\Models\Project;
@@ -135,6 +136,18 @@ class SubcontractorBillController extends Controller
             $user
         );
 
+        if ($bill->project?->manager_id) {
+            AppNotification::create([
+                'company_id' => $bill->company_id,
+                'user_id' => $bill->project->manager_id,
+                'title' => 'Subcontractor RA Bill Submitted',
+                'message' => "RA Bill {$bill->bill_number} submitted for engineering certification.",
+                'type' => 'warning',
+                'action_url' => route('subcontractor-bills.show', $bill),
+                'is_read' => false,
+            ]);
+        }
+
         return redirect()->route('subcontractor-bills.show', $bill)
             ->with('success', "Subcontractor RA Bill {$bill->bill_number} generated successfully from " . count($validated['measurement_entry_ids']) . " approved measurements.");
     }
@@ -188,6 +201,18 @@ class SubcontractorBillController extends Controller
 
         SubcontractorBillingService::certifyBill($subcontractorBill, $user);
 
+        if ($subcontractorBill->created_by) {
+            AppNotification::create([
+                'company_id' => $subcontractorBill->company_id,
+                'user_id' => $subcontractorBill->created_by,
+                'title' => 'Subcontractor Bill Certified',
+                'message' => "RA Bill {$subcontractorBill->bill_number} certified and cleared for accounts disbursement.",
+                'type' => 'success',
+                'action_url' => route('subcontractor-bills.show', $subcontractorBill),
+                'is_read' => false,
+            ]);
+        }
+
         return redirect()->route('subcontractor-bills.show', $subcontractorBill)
             ->with('success', "Subcontractor Bill {$subcontractorBill->bill_number} certified successfully. General Ledger journal posted (Dr 5040, Dr 1030 / Cr 2030, Cr 2040, Cr 2020).");
     }
@@ -216,6 +241,18 @@ class SubcontractorBillController extends Controller
         ]);
 
         $payment = SubcontractorBillingService::recordBillPayment($subcontractorBill, $validated, $user);
+
+        if ($subcontractorBill->created_by) {
+            AppNotification::create([
+                'company_id' => $subcontractorBill->company_id,
+                'user_id' => $subcontractorBill->created_by,
+                'title' => 'Subcontractor Payment Recorded',
+                'message' => "Payment recorded for RA Bill {$subcontractorBill->bill_number}.",
+                'type' => 'success',
+                'action_url' => route('subcontractor-bills.show', $subcontractorBill),
+                'is_read' => false,
+            ]);
+        }
 
         return redirect()->route('subcontractor-bills.show', $subcontractorBill)
             ->with('success', "Payment of ₹" . number_format($payment->amount, 2) . " recorded against {$subcontractorBill->bill_number}. Bank journal entry posted.");

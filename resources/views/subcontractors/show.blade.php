@@ -199,5 +199,19 @@
             </div>
         </div>
     </div>
+
+    <!-- Subcontractor KYC, Compliance & Statutory Documents -->
+    <x-document-manager 
+        :record="$subcontractor" 
+        type="subcontractor" 
+        title="Subcontractor KYC, Statutory Compliance & Master Agreements"
+        :categories="[
+            'contract' => 'Master Empanelment Agreement',
+            'business_kyc' => 'GST Registration / PAN / MSME Certificate',
+            'bank_mandate' => 'Bank Mandate / Cancelled Cheque',
+            'insurance_policy' => 'Workmen Compensation (WC) Insurance Policy',
+            'general' => 'Vendor Compliance & Tax Exemption Letters',
+        ]"
+    />
 </div>
 @endsection

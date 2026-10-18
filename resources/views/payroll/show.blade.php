@@ -155,5 +155,17 @@
         </div>
     </div>
 
+    <!-- Confidential Payroll Disbursement & Statutory Evidence -->
+    <x-document-manager 
+        :record="$period" 
+        type="payroll_period" 
+        title="Confidential Bank Wage Files & Statutory Challans"
+        :categories="[
+            'bank_mandate' => 'Bank Salary File (NEFT Batch / UTR Advice)',
+            'voucher_support' => 'EPF / ESI / Professional Tax Challan',
+            'attendance_evidence' => 'Muster Roll & Site Attendance Sign-Off Sheet',
+            'general' => 'Payroll Reconciliation & Variance Memo',
+        ]"
+    />
 </div>
 @endsection

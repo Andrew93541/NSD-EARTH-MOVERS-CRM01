@@ -227,6 +227,20 @@
             </table>
         </div>
     </div>
+
+    <!-- Loan Agreements, Sanction Letters & Amortization Schedules -->
+    <x-document-manager 
+        :record="$loan" 
+        type="loan" 
+        title="Sanction Letters, Loan Agreements & EMI Schedules"
+        :categories="[
+            'contract' => 'Bank Sanction Letter & Loan Agreement',
+            'emi_schedule' => 'Bank EMI Repayment Schedule',
+            'voucher_support' => 'Loan Disbursement Advice / Bank Credit UTR',
+            'bank_mandate' => 'Signed NACH Mandate / ECS Authorization',
+            'general' => 'NOC / Foreclosure / Debt Correspondence',
+        ]"
+    />
 </div>
 
 <!-- Modal: Settle EMI and Post Journal Entry -->

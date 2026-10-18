@@ -394,4 +394,410 @@ stateDiagram-v2
    - Duplicate reversals are strictly rejected at both controller and model layers.
    - Upstream subsystem protection: Journal entries originating from subcontractor bills, equipment loan EMIs, or asset depreciation must be reversed through their operational subsystem to ensure operational tracking (work order quantities, loan balances, asset depreciation) remains synchronized.
 
+---
+
+## 10. Real-Time Operational Event Dispatch & Notification Lifecycle
+
+BuildFlow couples transactional domain business workflows with an asynchronous, multi-channel notification architecture.
+
+```mermaid
+stateDiagram-v2
+    [*] --> DBTransaction: User performs action in browser
+    DBTransaction --> NotificationCreated: AppNotification record inserted
+    NotificationCreated --> DBCommit: Database Transaction successfully commits
+    DBCommit --> BroadcastDispatched: DB::afterCommit triggers Reverb event
+    BroadcastDispatched --> ClientDelivered: Live push to private channel subscriber
+    ClientDelivered --> DropdownViewed: User clicks topbar notification bell
+    DropdownViewed --> RecordOpened: User navigates to protected record link
+    RecordOpened --> MarkedRead: Notification marked as read
+    MarkedRead --> [*]
+```
+
+### Business Event Triggers & Routing Matrix
+| Business Event | Trigger Location | Target Audience / Channel | Severity | Safe Non-Sensitive Summary |
+|---|---|---|---|---|
+| **PR Submitted** | `PurchaseRequestController` | Company PMs & Owners (`company.{id}.role.project_manager`) | `warning` | "PR-YYYY-XXXX Submitted: Indent requires review" |
+| **PR Approved / Rejected** | `PurchaseRequestController` | Requester User (`App.Models.User.{id}`) | `success` / `danger` | "PR-YYYY-XXXX Approved / Rejected: Reason noted" |
+| **PO Issued** | `ProcurementController` | Company Storekeepers & PMs (`company.{id}`) | `info` | "PO-YYYY-XXXX Issued: Awaiting delivery" |
+| **GRN Recorded** | `ProcurementController` | Procurement & Accounts (`company.{id}`) | `success` | "Goods Receipt Recorded: GRN-YYYY-XXXX inspected" |
+| **Stock Shortage Detected** | `InventoryController` | Procurement Officers (`company.{id}.role.procurement_officer`) | `danger` | "Material Stock Shortage: Stock at or below reorder level" |
+| **Muster Roll Submitted** | `AttendanceController` | HR Officers & PMs (`company.{id}`) | `info` | "Muster Roll Submitted: Date records logged for review" |
+| **Payroll Batch Submitted** | `PayrollController` | Company Owner & Admin (`company.{id}.role.owner`) | `warning` | "Payroll Batch Submitted: Period awaiting final audit" |
+| **Payroll Batch Approved** | `PayrollController` | Accountants & HR (`company.{id}`) | `success` | "Payroll Batch Approved: Ready for disbursement" |
+| **Client Invoice Raised** | `BillingController` | Project Manager & Owner (`company.{id}`) | `info` | "RA Bill Generated: Client invoice ready for review" |
+| **Subcontractor Bill Certified** | `SubcontractorBillController` | Accounts & Admin (`company.{id}`) | `warning` | "Subcontractor Bill Certified: Payable ledger posted" |
+| **Payment Remitted / Received** | `BillingController`, `SubcontractorBillController` | Accounts & PMs (`company.{id}`) | `success` | "Payment Recorded: Financial ledger updated" |
+| **Retention Claim Submitted** | `RetentionController` | Client Rep & Accounts (`company.{id}`) | `info` | "Retention Release Claim: Submitted for certification" |
+| **Project Status Updated** | `ProjectController` | All Project Team Members (`project.{id}`) | `info` | "Project Status Changed: Milestone state updated" |
+
+### Client-Side Reconciliation & Event Deduplication
+1. **Deduplication**: The frontend Alpine store verifies event IDs before insertion (`this.notifications.some(n => n.id === event.id)`), preventing visual duplicates on retried operations.
+2. **Reconnection Recovery**: When WebSocket transitions to `connected` after an outage, Alpine immediately queries `/notifications/feed` to retrieve any persisted notifications missed during downtime.
+3. **Session Focus Synchronization**: When the browser window regains focus, unread counts reconcile silently via background HTTP request.
+
+---
+
+## 11. Secure Document Management, File Lifecycle & Statutory Immutability
+
+BuildFlow features a centralized, multi-tenant document management system embedded across all construction, procurement, workforce, and financial records. Files are treated as untrusted input and isolated in private storage (`storage/app/private`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> UploadReceived: Browser submits multipart/form-data
+    UploadReceived --> MIMEValidation: finfo magic-byte inspection & allowlist check
+    MIMEValidation --> SizeAndExtensionCheck: Max 15MB & extension match verified
+    SizeAndExtensionCheck --> MalwareScan: ConfigurableFileScanner (ClamAV daemon check)
+    MalwareScan --> StorageWrite: UUID filename written to private partition
+    StorageWrite --> DatabaseRecordCreated: Document model saved with SHA-256 hash
+    DatabaseRecordCreated --> ActiveDocument: Ready for authorized access
+    ActiveDocument --> StreamPreview: Inline viewing (PDF / Images) with security headers
+    ActiveDocument --> SecureDownload: Force attachment download with sanitized filename
+    ActiveDocument --> Superseded: Authorized replacement creates new version
+    Superseded --> ActiveDocument: New version active, prior version archived
+    ActiveDocument --> ImmutabilityCheck: Delete request triggered
+    ImmutabilityCheck --> BlockedByPolicy: Parent record is posted/certified/settled (403)
+    ImmutabilityCheck --> SoftDeleted: Unlocked record soft-deleted with audit trail
+    SoftDeleted --> [*]
+```
+
+### Steps & Security Lifecycle Controls
+1. **Upload, Inspection & Quarantine Pipeline**:
+   - Files are uploaded via the reusable `<x-document-manager>` component or direct API.
+   - **MIME Inspection**: The server runs `finfo_file` inspecting file magic bytes. Client-declared MIME types and file extensions are never trusted alone.
+   - **Allowlist Verification**: Permitted formats are strictly restricted to construction-grade and enterprise documents: PDF, PNG, JPG, JPEG, DWG, DXF, XLSX, XLS, CSV, DOC, DOCX. Executable formats (`.exe`, `.php`, `.sh`, `.bat`, `.js`, etc.) and archive wrappers (`.zip`, `.tar`) are rejected immediately.
+   - **File Size Cap**: Configured to 15MB per file maximum.
+   - **SHA-256 Checksum**: Computed at ingest and stored in the database for tamper detection and deduplication tracking.
+   - **Safe Storage Partitioning**: Storage filenames are generated as cryptographically random UUIDs (`Str::uuid() . '.' . $extension`). Files are written to company-isolated, record-partitioned paths: `companies/{company_id}/{entity_folder}/{record_id}/{uuid}.{ext}` in private storage outside the web root (`storage/app/private`).
+   - **Anti-Malware Scanning**: Routed through `FileScannerInterface` and `ConfigurableFileScanner`. When ClamAV daemon is active (`CLAMAV_HOST` / `CLAMAV_PORT`), files are scanned before persistence. If infected, the upload is aborted and quarantined with audit notification.
+
+2. **Authorized Preview & Streaming**:
+   - Files are served strictly through authorized controller endpoints (`GET /documents/{document}/preview` and `GET /documents/{document}/download`).
+   - Requests enforce tenant membership (`company_id == active_company_id`) and record-level authorization via `DocumentPolicy`.
+   - Previews are restricted to safe rendering types (`application/pdf`, `image/png`, `image/jpeg`).
+   - Streaming responses enforce strict defense-in-depth headers:
+     - `X-Content-Type-Options: nosniff` (prevents browser MIME-sniffing exploits)
+     - `X-Frame-Options: SAMEORIGIN` (mitigates clickjacking in iframes)
+     - `Content-Disposition: inline` for preview, `attachment` for download with safely sanitized original filename.
+
+3. **Non-Destructive Versioning & Supersession**:
+   - Replacing an existing document preserves audit history.
+   - The original document status transitions to `superseded`, its `superseded_by_id` pointer is set, and a new `Document` record is inserted with `version = previous_version + 1`.
+   - Historical versions remain accessible to auditors but are hidden from standard active operational views.
+
+4. **Statutory Immutability Lock**:
+   - Construction contracts, audited payroll records, certified subcontractor bills, approved client invoices, and posted journal vouchers have statutory and legal retention requirements.
+   - When a parent business record enters an immutable state:
+     - `JournalEntry`: Status `posted` or `reversed`
+     - `SubcontractorBill`: Status `certified` or `paid`
+     - `ClientInvoice`: Status `approved` or `paid`
+     - `PayrollPeriod`: Status `approved` or `disbursed`
+     - `Loan`: Status `settled`
+   - `DocumentPolicy::delete` and `Document::isParentImmutable()` strictly block file deletion with `HTTP 403 Forbidden` / `DomainException`.
+   - File deletion is permitted only on draft, pending, or rejected records by authorized users.
+
+5. **Confidentiality Vault & HR Separation**:
+   - Sensitive personal and financial records are flagged with `is_confidential = true`.
+   - Categories including `identity_document` (Aadhaar, PAN), `employment_contract`, `bank_proof`, and `statutory_compliance` are visible solely to authorized roles (`owner`, `admin`, `hr_officer`, `accountant`).
+   - General site supervisors and project engineers are blocked from discovering or viewing confidential employee or vendor records even within the same tenant.
+
+6. **Central Document Centre (`/documents`)**:
+   - Multi-module search engine scoped to the active tenant and the user's role permissions.
+   - Provides 4 KPI cards: Total Documents, Total Storage Used, Active Attachments, and Confidential Vault items.
+   - Dynamic filters by Module (`Project`, `Site`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `SubcontractorBill`, `Employee`, `PayrollPeriod`, `JournalEntry`, etc.), Document Category, and keyword search against original filenames.
+   - Confidential documents are hidden by default and accessible only via an authenticated vault toggle.
+   - Inline streaming preview modal allows inspecting drawings, PDFs, and delivery slips without leaving the repository.
+
+---
+
+## 12. Disaster Recovery, Health Monitoring & Production Runbook (Phase 11)
+
+BuildFlow provides verified, zero-downtime disaster recovery procedures and automated operational health monitoring.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as SysAdmin / DevOps
+    participant CLI as Artisan Console
+    participant Dump as mysqldump / tar
+    participant TestDB as Disposable DB (buildflow_restore_test)
+    participant Verifier as Ledger & Checksum Engine
+    
+    Admin->>CLI: php artisan buildflow:verify-recovery
+    CLI->>Dump: Dump active database & archive private files
+    Dump-->>CLI: Temporary snapshot created
+    CLI->>TestDB: Provision disposable schema & import snapshot
+    CLI->>Verifier: Validate 72 tables, row counts, and migration status
+    Verifier-->>CLI: Schema & migration parity verified (100%)
+    CLI->>Verifier: Check General Ledger posted vouchers & Trial Balance
+    Verifier-->>CLI: Debits == Credits verified (Diff: ₹0.00)
+    CLI->>Verifier: Unpack files & verify SHA-256 binary checksums
+    Verifier-->>CLI: All document checksums matched
+    CLI->>TestDB: DROP DATABASE buildflow_restore_test
+    CLI->>Dump: Purge temporary snapshot files
+    CLI-->>Admin: Verification PASSED (Disaster Recovery Confirmed)
+```
+
+### 1. Disaster Recovery Verification Runbook
+To verify database and storage recoverability without affecting live business operations:
+1. Run the non-destructive verification command:
+   ```bash
+   php artisan buildflow:verify-recovery
+   ```
+2. The command executes in an isolated sandbox:
+   - Dumps `buildflow_crm` to `/tmp/buildflow_recovery_*/db_backup.sql`.
+   - Packages `storage/app/private` into a compressed archive.
+   - Creates a temporary disposable database (`buildflow_restore_test`).
+   - Imports the backup into the disposable database.
+   - Compares table count and row counts across all 72 tables.
+   - Reconciles financial ledgers: verifies that all posted journal entries balance and Trial Balance total debits equal total credits.
+   - Validates that document attachments match their registered SHA-256 hashes.
+   - Purges disposable databases and temporary artifacts.
+3. Schedule regular cron verification:
+   ```cron
+   0 3 * * 0 cd /var/www/buildflow && php artisan buildflow:verify-recovery >> /var/log/buildflow/recovery.log 2>&1
+   ```
+
+### 2. Operational Health Monitoring (`GET /health`)
+Configure your load balancer (e.g. AWS ALB, Cloudflare, or Nginx) to query the `/health` endpoint:
+- **HTTP 200 OK**: System healthy and ready for traffic.
+- **HTTP 503 Service Unavailable**: Database or storage disk failure detected.
+- **Payload Inspection**:
+  - `checks.database.latency_ms` monitors query performance.
+  - `checks.storage.free_space_gb` monitors available disk capacity.
+  - `checks.reverb.status` indicates real-time WebSocket daemon availability.
+  - `checks.scanner.status` reports anti-malware engine readiness.
+
+### 3. Production Deployment Checklist
+When deploying BuildFlow to a live production server:
+1. **Environment Setup**:
+   - Ensure `APP_ENV=production` and `APP_DEBUG=false`.
+   - Set `SCANNER_FAIL_CLOSED=true` to enforce strict anti-malware inspection.
+   - Restrict `REVERB_ALLOWED_ORIGINS` to authorized production domains.
+2. **Database & Migrations**:
+   - Run additive migrations: `php artisan migrate --force`.
+   - **Never run** `migrate:fresh`, `migrate:refresh`, `db:wipe`, or seeders on live databases.
+3. **Cache Optimization**:
+   ```bash
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+4. **Service Process Management**:
+   - Ensure `supervisor` manages `php artisan reverb:start` and queue workers.
+   - Verify Nginx terminates TLS on port 443 and proxies `/reverb/` WebSocket upgrades.
+
+---
+
+## 13. Automated Backup & Disaster Recovery Runbook, Preflight Gate & Release Procedures (Phase 13)
+
+BuildFlow provides a comprehensive, production-grade release engineering system with persistent automated backups, preflight validation, and tested rollback procedures.
+
+### 1. The Four Distinct Operational Pillars
+
+```
++-----------------------------------------------------------------------------------+
+| 1. CREATION        | Durable atomic snapshot: MySQL dump + private file archive.  |
+| 2. VALIDATION      | Integrity check: SHA-256 digest match, archive format check. |
+| 3. RESTORE TEST    | Isolated dry run: disposable DB & temp filesystem sandbox.   |
+| 4. RECOVERY RUNBOOK| Human operator procedure: failover, restore, point-in-time.  |
++-----------------------------------------------------------------------------------+
+```
+
+### 2. Backup CLI Commands & Operational Options
+
+#### A. Durable Backup Creation
+```bash
+# Standard hourly backup (with automatic post-creation validation)
+php artisan buildflow:backup:create
+
+# Specific frequency tier (hourly, daily, monthly)
+php artisan buildflow:backup:create --frequency=daily
+
+# Encrypted backup with OpenSSL AES-256-CBC
+php artisan buildflow:backup:create --encrypt
+```
+- **Atomic Execution**: Dumps to `database.sql.tmp` and renames to `database.sql` upon successful exit.
+- **Archive Generation**: Creates `storage.tar.gz` capturing private files (`storage/app/private`).
+- **Atomic Manifest**: Writes `manifest.json` with sizes, checksums, table count (72), and migration count (16).
+- **Concurrency Guard**: Atomic lock `buildflow_backup_running_lock` prevents concurrent overlapping executions.
+- **Retention Pruning**: Automatically retains 24 hourly, 30 daily, and 12 monthly backups while strictly protecting any backup marked `is_protected = true`.
+
+#### B. Backup Integrity Validation
+```bash
+# Validate the most recent durable backup
+php artisan buildflow:backup:validate
+
+# Validate a specific historical backup
+php artisan buildflow:backup:validate backup_20261018_114834_hourly
+```
+- Re-reads and parses `manifest.json`.
+- Validates presence and non-zero size of database dump and storage tarball.
+- Re-computes SHA-256 hashes and compares against recorded manifest digests.
+- Tests archive listing (`tar -tzf`) and test-decrypts encrypted archives.
+- Updates `validation_status` (`valid` / `corrupt`) and `last_validated_at`.
+
+#### C. Isolated Restore & Disaster Recovery Verification
+```bash
+# Execute isolated restore test on the latest validated backup
+php artisan buildflow:verify-recovery
+
+# Target a specific durable backup directory
+php artisan buildflow:verify-recovery --backup=backup_20261018_114834_hourly
+```
+- Provisions disposable database (`buildflow_restore_test`) and temporary directory.
+- Restores database schema and records.
+- Confirms 100% table count parity (72 tables) and exact row counts.
+- Verifies migration count (16 applied).
+- Verifies General Ledger Trial Balance balance ($\sum \text{Debits} == \sum \text{Credits}$).
+- Unpacks storage archive and verifies SHA-256 binary hash digest matches across all document files.
+- On success: Marks backup manifest with `restore_test_status = 'passed'` and `is_protected = true`.
+- Completely drops `buildflow_restore_test` and removes temporary files. Live database is never touched.
+
+### 3. Automated Scheduling & Retention Configuration
+
+The application defines automated backup jobs in `routes/console.php`:
+```php
+// Hourly durable backup (creates snapshot, validates, and prunes expired backups)
+Schedule::command('buildflow:backup:create --frequency=hourly')
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Daily backup validation run at 02:00 UTC
+Schedule::command('buildflow:backup:validate')
+    ->dailyAt('02:00')
+    ->withoutOverlapping();
+
+// Weekly isolated disaster recovery verification run at 03:00 UTC on Sundays
+Schedule::command('buildflow:verify-recovery')
+    ->weeklyOn(0, '03:00')
+    ->withoutOverlapping();
+```
+
+#### Production Crontab Setup
+On the production server, configure the single standard Laravel scheduler cron:
+```cron
+* * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1
+```
+
+#### Retention Policy & Statutory Considerations
+- **Configured Defaults**: 24 hourly snapshots, 30 daily snapshots, 12 monthly snapshots.
+- **Protected Recovery Baseline**: The retention engine (`BackupManager::pruneOldBackups`) skips any backup marked `is_protected: true` and the newest valid backup overall.
+- **Statutory Audit Retention**: For construction accounting and tax compliance (Indian Companies Act, GST Act Sec 36, Income Tax Act Sec 44AA requiring 6–8 years of books of accounts), annual and quarterly financial archives must be synced off-host to cold storage (e.g. AWS S3 Glacier, Azure Archive) by the authorized infrastructure operator.
+
+### 4. Release Preflight & Go-Live Gate (`buildflow:preflight`)
+
+Run the preflight command before every release or deployment:
+```bash
+# Advisory mode (shows all 13 checks; warns on missing dev infrastructure; exits 0)
+php artisan buildflow:preflight
+
+# Strict production mode (fails with exit code 1 if any mandatory check fails)
+php artisan buildflow:preflight --strict
+```
+
+#### 13 Audited Domains
+| Domain | Check Name | Target State | Failure Remediation |
+|---|---|---|---|
+| **01. Environment** | Application Environment & Debug | `production` / `debug: false` | Set `APP_ENV=production` and `APP_DEBUG=false` in `.env`. |
+| **02. Encryption** | Application Key | 32-character base64 key | Verify `APP_KEY` exists. Do not rotate keys blindly! |
+| **03. Database** | Database Connectivity & Migrations | Connected, 0 pending migrations | Run `php artisan migrate --force`. |
+| **04. Accounting** | General Ledger Balance Invariant | Trial Balance balanced (Dr == Cr) | Audit unposted or unbalanced journal entries. |
+| **05. Storage** | Private Document Storage Privacy | `serve => false` on local disk | Ensure `config/filesystems.php` has `'serve' => false`. |
+| **06. Malware Policy** | Anti-Malware Fail-Closed Policy | `SCANNER_FAIL_CLOSED=true` | Set `SCANNER_FAIL_CLOSED=true` in production `.env`. |
+| **07. Scanner Daemon** | ClamAV Daemon Availability | Reachable on TCP 3310 or socket | Start `clamd` service on host or sidecar container. |
+| **08. HTTPS & Cookies** | HTTPS & Secure Session Cookies | `https://` base URL & secure cookies | Set `APP_URL=https://...` and `SESSION_SECURE_COOKIE=true`. |
+| **09. Reverse Proxy** | Trusted Proxy Configuration | `TRUSTED_PROXIES` restricted | Configure reverse proxy IP/CIDR in `TRUSTED_PROXIES`. |
+| **10. WebSockets** | Reverb Daemon & Allowed Origins | Daemon reachable, origins scoped | Start `reverb:start` via supervisor; configure origins. |
+| **11. Backups** | Durable Backup Freshness & RPO | Age < 120m, validated, restore tested | Run `buildflow:backup:create` and `buildflow:verify-recovery`. |
+| **12. Frontend** | Production Compiled Assets | `public/build/manifest.json` present | Run `npm run build` on deployment host. |
+| **13. Auth Security** | Production Demo Credential Guard | Demo accounts masked on login | Verify `APP_ENV=production` suppresses demo credentials. |
+
+### 5. Production Release Runbook
+
+Follow these sequential steps during a production release:
+
+1. **Step 1: Create a Pre-Release Durable Backup**
+   ```bash
+   php artisan buildflow:backup:create --frequency=daily
+   php artisan buildflow:verify-recovery
+   ```
+2. **Step 2: Enter Maintenance Mode**
+   ```bash
+   php artisan down --render="errors::503" --secret="<operator-secret-bypass-token>"
+   ```
+3. **Step 3: Pull Release Code & Install Dependencies**
+   ```bash
+   git pull origin main
+   composer install --no-dev --optimize-autoloader --no-interaction
+   npm ci
+   npm run build
+   ```
+4. **Step 4: Execute Additive Database Migrations**
+   ```bash
+   php artisan migrate --force
+   ```
+   > [!IMPORTANT]
+   > All migrations in BuildFlow are strictly additive. Never run `migrate:fresh`, `migrate:refresh`, or `db:wipe` on a production system.
+5. **Step 5: Clear and Rebuild Configuration & Route Caches**
+   ```bash
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+6. **Step 6: Restart Worker Daemons**
+   ```bash
+   php artisan queue:restart
+   sudo supervisorctl restart buildflow-reverb
+   ```
+7. **Step 7: Run Production Preflight Audit**
+   ```bash
+   php artisan buildflow:preflight --strict
+   ```
+8. **Step 8: Post-Deployment Smoke Test**
+   - Query `GET /health` and verify all checks report `ok`.
+   - Log in as authorized operator and verify dashboard, project list, and document centre.
+9. **Step 9: Exit Maintenance Mode**
+   ```bash
+   php artisan up
+   ```
+
+### 6. Production Rollback Plan
+
+If a release fails post-deployment preflight or exhibits critical runtime faults:
+
+#### A. Code & Asset Rollback (Non-Schema Impacting)
+If no database schema changes occurred:
+1. Re-enter maintenance mode: `php artisan down`.
+2. Checkout the previous release tag: `git checkout <previous-tag>`.
+3. Reinstall dependencies: `composer install --no-dev --optimize-autoloader` and `npm run build`.
+4. Clear caches: `php artisan config:cache && php artisan route:cache && php artisan view:cache`.
+5. Restart workers: `php artisan queue:restart && sudo supervisorctl restart buildflow-reverb`.
+6. Bring application back up: `php artisan up`.
+
+#### B. Database Rollback Strategy (Why NOT blind `migrate:rollback`)
+In a live ERP with continuous business activity (worker muster rolls, purchase requests, client bills, journal entries), running `php artisan migrate:rollback` can delete live tables or columns containing newly posted business records.
+- **Additive Migrations**: Because migrations are strictly additive, newly deployed code should be written to be backward-compatible with the previous schema version.
+- **Full Disaster Restoration**: If catastrophic database corruption occurs, perform a clean restore from the pre-release durable backup:
+  ```bash
+  # 1. Take application offline
+  php artisan down
+  
+  # 2. Extract database dump from durable backup
+  BACKUP_DIR="storage/app/backups/<backup-id>"
+  
+  # 3. Restore MySQL database
+  mysql -u <user> -p<pass> <db_name> < "$BACKUP_DIR/database.sql"
+  
+  # 4. Restore private storage files if necessary
+  tar -xzf "$BACKUP_DIR/storage.tar.gz" -C storage/app/private/
+  
+  # 5. Clear application caches and restart
+  php artisan cache:clear
+  php artisan up
+  ```
+
+
+
+
 

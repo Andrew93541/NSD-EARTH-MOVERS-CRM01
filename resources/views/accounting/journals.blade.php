@@ -95,6 +95,21 @@
                         @endforeach
                     </tbody>
                 </table>
+
+                <!-- Supporting Voucher Attachments -->
+                <div class="pt-2 border-t border-gray-100">
+                    <x-document-manager 
+                        :record="$je" 
+                        type="journal_entry" 
+                        title="Voucher Supporting Invoices & Bank Slips"
+                        :categories="[
+                            'voucher_support' => 'Signed Voucher / Payment Receipt',
+                            'supplier_invoice' => 'Supplier Commercial Invoice Copy',
+                            'bank_mandate' => 'Bank Debit Advice / Deposit Counterfoil',
+                            'general' => 'Audit Justification Note',
+                        ]"
+                    />
+                </div>
             </div>
         @empty
             <div class="p-8 text-center text-gray-400 soft-card">No journal vouchers posted yet.</div>

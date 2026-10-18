@@ -110,5 +110,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Project Documents & Engineering Vault -->
+    <x-document-manager 
+        :record="$project" 
+        type="project" 
+        title="Project Documentation & Engineering Files"
+        :categories="[
+            'contract' => 'Client EPC Contract / Work Order',
+            'drawing' => 'Engineering Drawing / Blueprints',
+            'specification' => 'Technical Specifications / BOQ',
+            'permit' => 'Statutory Permit / NOC / Clearance',
+            'inspection_report' => 'QA/QC Inspection Report',
+            'progress_photo' => 'Site Progress Photograph',
+            'general' => 'General Project Correspondence',
+        ]"
+    />
 </div>
 @endsection
