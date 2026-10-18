@@ -25,10 +25,10 @@ return [
     */
     'encryption' => [
         'enabled' => (bool) env('BACKUP_ENCRYPT', false),
-        'key' => env('BACKUP_ENCRYPTION_KEY', env('APP_KEY')),
+        'key' => env('BACKUP_ENCRYPTION_KEY'),
         'cipher' => env('BACKUP_ENCRYPTION_CIPHER', 'AES-256-GCM'),
         'format_version' => 2,
-        'allow_legacy_cbc_decrypt' => true,
+        'allow_legacy_cbc_decrypt' => (bool) env('BACKUP_ALLOW_LEGACY_CBC_DECRYPT', true),
     ],
 
     /*

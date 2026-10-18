@@ -293,9 +293,9 @@ When `SCANNER_FAIL_CLOSED=true`, file uploads will be rejected with an error if 
 ```env
 BROADCAST_CONNECTION=reverb
 
-REVERB_APP_ID=591534
-REVERB_APP_KEY=xiuwnqdp8buhu2e9gmp3
-REVERB_APP_SECRET=eoptqeavgmv9gp76mqn8
+REVERB_APP_ID="your-reverb-app-id"
+REVERB_APP_KEY="your-reverb-app-key"
+REVERB_APP_SECRET="your-reverb-app-secret"
 REVERB_HOST="localhost"
 REVERB_PORT=8080
 REVERB_SCHEME=http
@@ -307,6 +307,9 @@ VITE_REVERB_PORT="${REVERB_PORT}"
 VITE_REVERB_SCHEME="${REVERB_SCHEME}"
 ```
 *Note: In production, configure `REVERB_SCHEME=https` and `VITE_REVERB_SCHEME=https` with your domain hostname (`wss://`). Restrict `REVERB_ALLOWED_ORIGINS` to your production domain.*
+
+> [!CAUTION]
+> **Credential Rotation Advisory**: If the development Reverb credentials or secrets published in earlier commit history or documentation were ever configured in any non-local or staging environment, they must be rotated immediately using your environment's secret manager or deployment procedure. Never reuse published development secrets in production.
 
 ### 2. Process Supervision (Supervisor)
 To ensure the Reverb WebSocket daemon remains active and automatically restarts upon system reboots or failures, use Supervisor:
@@ -353,16 +356,23 @@ location /reverb/ {
 
 ---
 
-## 🔑 Default Credentials
+## 🔑 Development Demo Accounts & Credentials
 
-| Role | Email | Password |
+> [!IMPORTANT]
+> Demo accounts are created strictly for local development and automated testing via `DatabaseSeeder.php`. They are prohibited in production environments and `DatabaseSeeder` will fail closed if invoked under `APP_ENV=production`. In production, strict preflight audit (`php artisan buildflow:preflight --strict`) will block release if any known demo account remains active.
+
+| Role | Email | Password Reference |
 |---|---|---|
-| **Super Admin / Owner** | `admin@buildflow.local` | `Password123!` |
-| **Project Manager** | `pm@buildflow.local` | `Password123!` |
-| **Site Engineer** | `site@buildflow.local` | `Password123!` |
-| **Accountant / Finance** | `accounts@buildflow.local` | `Password123!` |
+| **Super Admin / Owner** | `admin@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Project Manager** | `pm@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Site Engineer** | `site@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Accountant / Finance** | `accounts@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **HR / Payroll Officer** | `hr@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Procurement Officer** | `procurement@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Storekeeper** | `storekeeper@buildflow.local` | Managed via local `.env` / seeder fixture |
+| **Project Manager 2** | `karan@buildflow.local` | Managed via local `.env` / seeder fixture |
 
-*(Pre-filled on the login screen for rapid evaluation)*
+*(Pre-filled on login screen strictly under `local` and `testing` environments; suppressed in production)*
 
 ---
 

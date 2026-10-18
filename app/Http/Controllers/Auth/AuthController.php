@@ -104,6 +104,9 @@ class AuthController extends Controller
     {
         $request->validate(['email' => ['required', 'email']]);
 
+        // Attempt sending password reset link via broker to registered user
+        Password::broker()->sendResetLink($request->only('email'));
+
         // Security best practice: Do not disclose whether email exists
         return back()->with('status', 'If an account exists for that email, a password reset link has been dispatched.');
     }
@@ -124,12 +127,35 @@ class AuthController extends Controller
             'password' => 'required|confirmed|min:8',
         ]);
 
-        $user = User::where('email', $request->email)->first();
-        if ($user) {
-            $user->password = Hash::make($request->password);
-            $user->save();
+        $status = Password::broker()->reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function (User $user, string $password) use ($request) {
+                $user->forceFill([
+                    'password' => Hash::make($password),
+                ])->setRememberToken(Str::random(60));
+
+                $user->save();
+
+                event(new \Illuminate\Auth\Events\PasswordReset($user));
+
+                AuditLog::create([
+                    'user_id' => $user->id,
+                    'company_id' => null,
+                    'action' => 'password_reset',
+                    'auditable_type' => User::class,
+                    'auditable_id' => $user->id,
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+            }
+        );
+
+        if ($status === Password::PASSWORD_RESET) {
+            return redirect()->route('login')->with('status', __($status));
         }
 
-        return redirect()->route('login')->with('status', 'Password reset successfully. You may now log in.');
+        throw ValidationException::withMessages([
+            'email' => [__($status)],
+        ]);
     }
 }

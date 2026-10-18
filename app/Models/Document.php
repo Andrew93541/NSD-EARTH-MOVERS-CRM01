@@ -65,7 +65,7 @@ class Document extends Model
     }
 
     /**
-     * Scope documents visible to the given user based on confidentiality & permissions.
+     * Scope documents visible to the given user based on confidentiality & parent permissions.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
@@ -75,6 +75,19 @@ class Document extends Model
         if (! $isPrivileged) {
             $query->where('is_confidential', false);
         }
+
+        $accessibleTypes = app(\App\Policies\DocumentPolicy::class)->getAccessibleParentTypes($user);
+
+        if (empty($accessibleTypes)) {
+            $query->whereRaw('1 = 0');
+            return $query;
+        }
+
+        // Deny by default: only include documents with recognized, authorized parent types
+        // Excludes unknown parent types, null documentable_type/id (orphaned), and parent types the user cannot access
+        $query->whereNotNull('documentable_type')
+            ->whereNotNull('documentable_id')
+            ->whereIn('documentable_type', $accessibleTypes);
 
         return $query;
     }
