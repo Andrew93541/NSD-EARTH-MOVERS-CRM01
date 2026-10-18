@@ -8,15 +8,15 @@ use Illuminate\Console\Command;
 class ValidateBackupCommand extends Command
 {
     protected $signature = 'buildflow:backup:validate 
-                            {--backup= : Backup ID to validate (defaults to latest backup)}';
+                            {backup_id? : Backup ID to validate (defaults to latest backup)}';
 
-    protected $description = 'Validate SHA-256 checksums and archive integrity of a durable backup';
+    protected $description = 'Validate SHA-256 checksums, AEAD authentication, and archive integrity of a durable backup';
 
     public function handle(BackupManager $manager): int
     {
         $this->info("=== BuildFlow Backup Validation Engine ===");
 
-        $backupId = $this->option('backup');
+        $backupId = $this->argument('backup_id');
         if (! $backupId) {
             $latest = $manager->getLatestBackup();
             if (! $latest) {
@@ -38,7 +38,12 @@ class ValidateBackupCommand extends Command
                 if (! empty($m['storage']['archive_file'])) {
                     $this->line("  Storage Archive: {$m['storage']['archive_file']} (Checksum verified: {$m['storage']['archive_checksum']})");
                 }
-                $this->line("  Encrypted: " . ($m['encryption']['enabled'] ? 'Yes (' . $m['encryption']['cipher'] . ')' : 'No'));
+                if (! empty($m['encryption']['enabled'])) {
+                    $authStatus = ! empty($m['encryption']['authenticated']) ? 'AEAD Authenticated' : 'Unauthenticated (Legacy)';
+                    $this->line("  Encrypted: Yes ({$m['encryption']['cipher']}, {$authStatus}, key fingerprint: " . ($m['encryption']['key_fingerprint'] ?? 'N/A') . ")");
+                } else {
+                    $this->line("  Encrypted: No");
+                }
                 $this->line("  Validated At: {$m['validated_at']}");
                 return Command::SUCCESS;
             } else {

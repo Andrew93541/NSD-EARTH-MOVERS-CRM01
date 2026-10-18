@@ -84,10 +84,10 @@ Visual design and UI tokens are modeled directly after the **Google Stitch** pro
 - **Styling**: Tailwind CSS (Stitch tokens, Plus Jakarta Sans, Inter)
 - **Interactions**: Alpine.js
 - **Charts**: Chart.js
-- **Automated Testing**: PHPUnit (164 tests, 1007 assertions, 100% passing)
-- **Durable Automated Backups**: Multi-tier backup engine (`buildflow:backup:create`, `buildflow:backup:validate`, `buildflow:verify-recovery`) with AES-256 encryption and atomic locks
-- **Release Preflight & Gate**: Automated go-live audit command (`php artisan buildflow:preflight`)
-- **Operational Health**: Real-time `/health` endpoint reporting database, storage, cache, Reverb, scanner, and backup RPO status
+- **Automated Testing**: PHPUnit (175 tests, 1081 assertions, 100% passing)
+- **Durable Automated Backups**: Multi-tier backup engine (`buildflow:backup:*`) with AEAD AES-256-GCM authenticated encryption, secondary off-host replication, atomic locks, and bounded retention protection
+- **Release Preflight & Gate**: Automated go-live audit command (`php artisan buildflow:preflight {--strict}`)
+- **Operational Health**: Real-time `/health` endpoint reporting database latency, storage, cache, Reverb, scanner, secondary replication, and 60m RPO status
 
 ---
 
@@ -134,6 +134,8 @@ npm install
 
 ### 5. Generate Application Key & Run Migrations
 ```bash
+# IMPORTANT: Run key:generate ONCE only during initial greenfield installation!
+# NEVER run key:generate on an existing deployment containing encrypted data, active sessions, or users.
 php artisan key:generate
 php artisan migrate
 ```
@@ -173,28 +175,32 @@ Reverb listens by default on `0.0.0.0:8080` (or the port defined by `REVERB_PORT
 
 ## 🛡️ Production Operations & Disaster Recovery
 
-### 1. Durable Automated Backups (`buildflow:backup:*`)
-BuildFlow separates backup creation, integrity validation, and isolated restore testing into distinct, non-conflicting operational workflows:
+### 1. Durable Automated Backups & AEAD Cryptography (`buildflow:backup:*`)
+BuildFlow separates backup creation, AEAD cryptographic validation, isolated restore testing, and secondary off-host replication into distinct, non-conflicting operational workflows:
 
 ```bash
 # 1. Create a durable atomic backup (database + private document storage)
 php artisan buildflow:backup:create --frequency=hourly
 
-# Optional: Create an encrypted snapshot using AES-256-CBC
+# Optional: Create an authenticated encrypted snapshot using AEAD AES-256-GCM
 php artisan buildflow:backup:create --frequency=daily --encrypt
 
-# 2. Validate checksums, archive readability, and encryption of latest backup
+# 2. Validate checksums, AEAD authentication tags, and archive readability
 php artisan buildflow:backup:validate
 
-# 3. Perform an isolated disaster recovery restore test (never overwrites live DB)
+# 3. Replicate verified backup to secondary off-host destination
+php artisan buildflow:backup:replicate
+
+# 4. Perform an isolated disaster recovery restore test (never overwrites live DB)
 php artisan buildflow:verify-recovery
 ```
 
 ### 2. Automated Scheduling (Laravel Scheduler)
 The system defines explicit schedules in `routes/console.php`:
 - **Hourly**: `buildflow:backup:create --frequency=hourly` (retains last 24 snapshots)
-- **Daily at 02:00**: `buildflow:backup:validate` (validates checksums and readability)
-- **Weekly on Sunday at 03:00**: `buildflow:verify-recovery` (proves isolated restore into `buildflow_restore_test` and protects the verified recovery copy)
+- **Hourly at :15**: `buildflow:backup:replicate` (syncs verified backup to secondary destination)
+- **Daily at 02:00**: `buildflow:backup:validate` (validates checksums, AEAD tags, and archive readability)
+- **Weekly on Sunday at 03:00**: `buildflow:verify-recovery` (proves isolated restore into `buildflow_restore_test` with bounded protected recovery baselines)
 
 To activate on your server, ensure the standard Laravel cron entry is installed:
 ```cron
@@ -217,18 +223,18 @@ A rate-limited operational health check endpoint is provided at `/health` for lo
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-10-18T11:50:17+00:00",
+  "timestamp": "2026-10-18T12:11:45+00:00",
   "environment": "local",
-  "total_latency_ms": 11.8,
+  "total_latency_ms": 3.71,
   "checks": {
     "database": {
       "status": "ok",
-      "latency_ms": 0.16
+      "latency_ms": 0.01
     },
     "storage": {
       "status": "ok",
-      "free_space_gb": 363.89,
-      "latency_ms": 7.13
+      "free_space_gb": 363.79,
+      "latency_ms": 0.43
     },
     "cache": {
       "status": "ok"
@@ -247,11 +253,22 @@ A rate-limited operational health check endpoint is provided at `/health` for lo
     },
     "durable_backups": {
       "status": "ok",
-      "latest_backup_id": "backup_20261018_114834_hourly",
-      "age_minutes": 2,
+      "latest_backup_id": "backup_20261018_121120_hourly",
+      "age_minutes": 0,
+      "rpo_target_minutes": 60,
+      "rpo_status": "satisfied",
       "validation_status": "valid",
       "restore_test_status": "passed",
-      "rpo_status": "satisfied"
+      "creation": { "status": "ok", "frequency": "hourly" },
+      "validation": { "status": "valid" },
+      "restore_verification": { "status": "passed", "is_protected": true },
+      "encryption": { "enabled": true, "cipher": "aes-256-gcm", "authenticated": true, "key_configured": true }
+    },
+    "secondary_replication": {
+      "status": "active",
+      "enabled": false,
+      "latest_replicated_id": "backup_20261018_121120_hourly",
+      "total_replicas": 1
     }
   }
 }

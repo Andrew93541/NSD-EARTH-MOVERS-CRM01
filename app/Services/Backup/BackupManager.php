@@ -582,13 +582,34 @@ class BackupManager
             $tag = substr($data, 9 + $ivLen, $tagLen);
             $ciphertext = substr($data, 9 + $ivLen + $tagLen);
 
-            // Verify with AAD contextual binding
-            $aad = "BuildFlow-AEAD-v2|" . ($backupId ?? '') . "|" . ($fileName ?? '');
-            $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $aad);
+            // Infer backupId and fileName from source file path if not explicitly provided
+            $inferredBackupId = $backupId;
+            $inferredFileName = $fileName;
+            if ($inferredBackupId === null) {
+                $parent = basename(dirname($sourceFile));
+                if (str_starts_with($parent, 'backup_')) {
+                    $inferredBackupId = $parent;
+                }
+            }
+            if ($inferredFileName === null) {
+                $base = basename($sourceFile);
+                $inferredFileName = str_ends_with($base, '.enc') ? substr($base, 0, -4) : $base;
+            }
 
-            // Fallback for tests or decoupled verification where AAD was omitted
-            if ($plaintext === false && $backupId !== null) {
-                $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, '');
+            // Verify with AAD contextual binding candidates
+            $aadCandidates = [];
+            if ($inferredBackupId !== null || $inferredFileName !== null) {
+                $aadCandidates[] = "BuildFlow-AEAD-v2|" . ($inferredBackupId ?? '') . "|" . ($inferredFileName ?? '');
+            }
+            $aadCandidates[] = "BuildFlow-AEAD-v2||";
+            $aadCandidates[] = "";
+
+            $plaintext = false;
+            foreach ($aadCandidates as $candidateAad) {
+                $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $candidateAad);
+                if ($plaintext !== false) {
+                    break;
+                }
             }
 
             if ($plaintext === false) {

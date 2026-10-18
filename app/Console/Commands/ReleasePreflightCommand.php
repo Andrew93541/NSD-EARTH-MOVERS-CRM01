@@ -4,10 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use App\Services\Backup\BackupManager;
+use App\Services\Backup\Replication\BackupReplicationInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
-use PDO;
 
 class ReleasePreflightCommand extends Command
 {
@@ -16,7 +16,7 @@ class ReleasePreflightCommand extends Command
 
     protected $description = 'Perform a comprehensive production release preflight and go-live gate audit';
 
-    public function handle(BackupManager $backupManager): int
+    public function handle(BackupManager $backupManager, BackupReplicationInterface $replicator): int
     {
         $strict = (bool) $this->option('strict') || app()->environment('production');
 
@@ -43,12 +43,12 @@ class ReleasePreflightCommand extends Command
             $hasWarnings = true;
         }
 
-        // 2. Application Key
+        // 2. Application Key (APP_KEY)
         $appKey = config('app.key');
         if (! empty($appKey) && str_starts_with($appKey, 'base64:') && strlen($appKey) > 40) {
             $checks[] = ['Security', 'Application Encryption Key (APP_KEY)', 'PASS', "Configured and valid 256-bit AES key."];
         } else {
-            $checks[] = ['Security', 'Application Encryption Key (APP_KEY)', 'FAIL', "APP_KEY missing or invalid format. Run key:generate before initial deployment."];
+            $checks[] = ['Security', 'Application Encryption Key (APP_KEY)', 'FAIL', "APP_KEY missing or invalid format. Run key:generate ONCE during initial greenfield provisioning."];
             $hasFailures = true;
         }
 
@@ -175,22 +175,19 @@ class ReleasePreflightCommand extends Command
             $hasWarnings = true;
         }
 
-        // 10. Durable Backups & RPO Verification
+        // 10. Durable Backup Creation & RPO SLA (60m Target, 75m Critical Limit)
         $latestBackup = $backupManager->getLatestBackup();
         if ($latestBackup) {
             $age = $backupManager->getLatestBackupAgeMinutes();
-            $isStale = $backupManager->isBackupStale(120);
-            $isValid = ($latestBackup['validation_status'] ?? '') === 'valid';
-            $isTested = ($latestBackup['restore_test_status'] ?? '') === 'passed';
+            $rpoStatus = $backupManager->getRpoStatus($age);
 
-            if (! $isStale && $isValid && $isTested) {
-                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', 'PASS', "Latest snapshot [{$latestBackup['backup_id']}] age {$age}m, VALIDATED, RESTORE_TEST_PASSED."];
-            } elseif (! $isStale && $isValid) {
-                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', 'WARNING', "Backup [{$latestBackup['backup_id']}] valid ({$age}m ago), but isolated restore test is pending."];
+            if ($rpoStatus === 'satisfied') {
+                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', 'PASS', "Latest snapshot [{$latestBackup['backup_id']}] age {$age}m <= 60m RPO target."];
+            } elseif ($rpoStatus === 'warning_approaching_breach') {
+                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', 'WARNING', "Backup [{$latestBackup['backup_id']}] age {$age}m exceeds 60m target (within 75m grace window)."];
                 $hasWarnings = true;
             } else {
-                $msg = $isStale ? "Latest backup is stale ({$age}m old > 120m SLA threshold)." : "Latest backup failed validation.";
-                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', $strict ? 'FAIL' : 'WARNING', $msg];
+                $checks[] = ['Disaster Recovery', 'Durable Automated Backups', $strict ? 'FAIL' : 'WARNING', "RPO BREACH: Latest backup [{$latestBackup['backup_id']}] age {$age}m > 75m critical SLA limit."];
                 if ($strict) $hasFailures = true; else $hasWarnings = true;
             }
         } else {
@@ -198,7 +195,45 @@ class ReleasePreflightCommand extends Command
             $hasFailures = true;
         }
 
-        // 11. Frontend Production Asset Compilation
+        // 11. Backup Validation & Cryptographic Integrity
+        if ($latestBackup) {
+            $isValid = ($latestBackup['validation_status'] ?? '') === 'valid';
+            if ($isValid) {
+                $checks[] = ['Disaster Recovery', 'Backup Cryptographic Integrity Validation', 'PASS', "Validated clean: SHA-256 digests and archive format verified."];
+            } else {
+                $checks[] = ['Disaster Recovery', 'Backup Cryptographic Integrity Validation', $strict ? 'FAIL' : 'WARNING', "Latest backup [{$latestBackup['backup_id']}] validation status is [" . ($latestBackup['validation_status'] ?? 'pending') . "]."];
+                if ($strict) $hasFailures = true; else $hasWarnings = true;
+            }
+        } else {
+            $checks[] = ['Disaster Recovery', 'Backup Cryptographic Integrity Validation', 'FAIL', "No backup available to validate."];
+            $hasFailures = true;
+        }
+
+        // 12. Isolated Restore Verification
+        $latestTested = $backupManager->getLatestRestoreTestedBackup();
+        if ($latestTested) {
+            $checks[] = ['Disaster Recovery', 'Isolated Disaster Recovery Restore Test', 'PASS', "Verified baseline: [{$latestTested['backup_id']}] passed isolated restore test (protected: " . (! empty($latestTested['is_protected']) ? 'YES' : 'NO') . ")."];
+        } elseif ($strict) {
+            $checks[] = ['Disaster Recovery', 'Isolated Disaster Recovery Restore Test', 'FAIL', "No backup has passed an isolated restore test. Run [php artisan buildflow:verify-recovery]."];
+            $hasFailures = true;
+        } else {
+            $checks[] = ['Disaster Recovery', 'Isolated Disaster Recovery Restore Test', 'WARNING', "Isolated restore verification pending. Run [php artisan buildflow:verify-recovery]."];
+            $hasWarnings = true;
+        }
+
+        // 13. Secondary Off-Host Backup Replication
+        $repStatus = $replicator->getReplicationStatus();
+        if ($repStatus['status'] === 'active' && $repStatus['total_replicas'] > 0) {
+            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'PASS', "Replication verified: {$repStatus['total_replicas']} secondary replicas ({$repStatus['latest_replicated_id']})."];
+        } elseif ($strict) {
+            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'FAIL', "Off-host replication not configured or no replicas exist. Required for production resilience."];
+            $hasFailures = true;
+        } else {
+            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'WARNING', "Secondary replication not yet configured on this host. Run [buildflow:backup:replicate]."];
+            $hasWarnings = true;
+        }
+
+        // 14. Frontend Production Asset Compilation
         $manifestPath = public_path('build/manifest.json');
         if (file_exists($manifestPath) && filesize($manifestPath) > 0) {
             $checks[] = ['Frontend', 'Vite Production Asset Compilation', 'PASS', "public/build/manifest.json verified. Production bundle ready."];
@@ -207,7 +242,7 @@ class ReleasePreflightCommand extends Command
             $hasFailures = true;
         }
 
-        // 12. Default Demo Accounts
+        // 15. Default Demo Accounts
         $defaultUsersCount = User::whereIn('email', [
             'admin@buildflow.local',
             'pm@buildflow.local',
@@ -225,10 +260,10 @@ class ReleasePreflightCommand extends Command
             $hasWarnings = true;
         }
 
-        // 13. External Host Infrastructure Checks (Pending Verification)
-        $checks[] = ['Infrastructure', 'Supervisor Process Manager (Workers)', 'NOT VERIFIED', "Host-level supervisorctl running queue:work and reverb:start must be confirmed on server."];
+        // 16. External Host Infrastructure Checks (Pending Verification)
+        $checks[] = ['Infrastructure', 'Supervisor Process Manager (Workers)', 'NOT VERIFIED', "Host supervisorctl running queue:work and reverb:start must be confirmed on server."];
         $checks[] = ['Infrastructure', 'System Crontab (schedule:run)', 'NOT VERIFIED', "Host crontab entry (* * * * * php artisan schedule:run) must be configured on server."];
-        $checks[] = ['Infrastructure', 'Off-Host Secondary Backup Sync', 'NOT VERIFIED', "Off-site synchronization (S3/rsync) to secondary region must be configured by operator."];
+        $checks[] = ['Infrastructure', 'Off-Host Cloud Cold Storage Archive', 'NOT VERIFIED', "Long-term cold storage (S3 Glacier/Azure) for statutory 6-8 yr audit compliance required."];
 
         // Format and render console table
         $formatted = array_map(function ($c) {

@@ -245,7 +245,7 @@ graph TD
 
 ---
 
-## 7. Durable Automated Backups, Disaster Recovery & Release Preflight (Phase 13)
+## 7. Durable Automated Backups, AEAD Cryptography & Disaster Recovery (Phases 13 & 14)
 
 BuildFlow enforces an automated, persistent backup and recovery architecture distinguishing four separate lifecycle operations:
 
@@ -254,26 +254,28 @@ graph LR
     subgraph 1. Creation
         DB[(MySQL 8+ Live)] -->|mysqldump .tmp -> .sql| Snap[Atomic SQL Dump]
         Storage[storage/app/private] -->|tar -czf| Arc[Private Files Tarball]
-        Snap & Arc -->|AES-256-CBC Encrypt| Durable[Durable Backup Directory]
-        Durable -->|Compute SHA-256 & Metadata| Manifest[manifest.json]
+        Snap & Arc -->|AEAD AES-256-GCM| Durable[Durable Backup Directory]
+        Durable -->|Compute SHA-256 & Nonce/Tag| Manifest[manifest.json v2]
     end
 
     subgraph 2. Validation
         Manifest --> ValCmd[php artisan buildflow:backup:validate]
-        ValCmd --> Checksums[SHA-256 Digest Matching & Archive Listing]
+        ValCmd --> Checksums[SHA-256 Digest Matching & AEAD Tag Verification]
         Checksums --> ValStatus[validation_status = 'valid']
     end
 
-    subgraph 3. Isolated Restore
+    subgraph 3. Replication
+        ValStatus --> RepCmd[php artisan buildflow:backup:replicate]
+        RepCmd --> SecStore[(Secondary Off-Host Storage)]
+        SecStore --> RepVerify[Remote SHA-256 Parity & Receipt]
+    end
+
+    subgraph 4. Isolated Restore
         ValStatus --> RestCmd[php artisan buildflow:verify-recovery]
         RestCmd --> DispDB[(Disposable DB buildflow_restore_test)]
         RestCmd --> DispFS[(Temp Storage Sandbox)]
         DispDB & DispFS --> Audit[Verify 72 Tables, GL Debits==Credits, File Digests]
-        Audit --> RestStatus[restore_test_status = 'passed' & is_protected = true]
-    end
-
-    subgraph 4. Operational Recovery
-        RestStatus --> Runbook[Operator Handover & Failover Runbook]
+        Audit --> RestStatus[restore_test_status = 'passed' & bounded is_protected]
     end
 ```
 
@@ -283,58 +285,86 @@ graph LR
    - Executes non-destructive, atomic exports of the live MySQL database and private document repository.
    - Database dumps write to `.tmp` files and atomically rename to `.sql` upon successful mysqldump exit (preventing partial dumps from being recognized as valid).
    - Document files (`storage/app/private`) are packed into a compressed tarball (`storage.tar.gz`).
-   - Optional AES-256-CBC envelope encryption protects data at rest when `BACKUP_ENCRYPT=true`.
-   - Generates an immutable, atomic `manifest.json` recording backup ID, timestamps, table counts, migration states, archive sizes, and SHA-256 checksums.
-   - Enforces atomic job locking via `Cache::lock('buildflow_backup_running_lock')` to prevent overlapping runs.
+   - OpenSSL AEAD AES-256-GCM envelope encryption protects data at rest when `BACKUP_ENCRYPT=true`.
+   - Generates an immutable, atomic `manifest.json` (version 2) recording backup ID, timestamps, table counts, migration states, archive sizes, and SHA-256 checksums.
+   - Enforces atomic job locking via `Cache::lock('buildflow_backup_running_lock')` to prevent overlapping runs (returns exit code `2` on lock collision).
    - Prunes expired retention copies (24 hourly, 30 daily, 12 monthly) while unconditionally protecting the last verified recovery copy.
 
 2. **Durable Backup Validation (`buildflow:backup:validate`)**:
    - Verifies structural integrity of the backup manifest and existence of required archives.
    - Recalculates SHA-256 checksums of database and storage files and matches against manifest records.
-   - Verifies readability of compressed archives (`tar -tzf`) and test-decrypts encrypted archives.
-   - Updates `validation_status` (`valid` or `corrupt`) and records `last_validated_at` in the manifest.
+   - Authenticates AEAD tags (`aes-256-gcm`) and verifies archive readability (`tar -tzf`).
+   - Updates `validation_status` (`valid` or `invalid`) and records `last_validated_at` in the manifest.
 
-3. **Isolated Disposable Restore (`buildflow:verify-recovery`)**:
+3. **Secondary Off-Host Replication (`buildflow:backup:replicate`)**:
+   - Replicates validated snapshots to secondary storage (`BackupReplicationInterface`).
+   - Re-computes SHA-256 checksums at destination and matches against source files before generating an atomic `replication_receipt.json`.
+   - Retries on transient failure with backoff and prunes secondary retention.
+
+4. **Isolated Disposable Restore (`buildflow:verify-recovery`)**:
    - Provisions an isolated, disposable database schema (`buildflow_restore_test`) and scratch storage directory.
-   - Restores database schema and records from the durable SQL dump.
+   - Active Database Protection: Refuses to restore if target database matches active production database.
+   - Restores database schema and records from the durable SQL dump using `proc_open` with `MYSQL_PWD` (no passwords in CLI arguments).
    - Validates 100% table parity (all 72 tables), row count parity, and 16 migrations.
    - Executes General Ledger invariant check: verifies Trial Balance balance ($\sum \text{Debits} == \sum \text{Credits}$).
    - Unpacks private documents and verifies SHA-256 binary hash digests against active document records.
-   - Upon successful verification, flags the backup manifest with `restore_test_status: 'passed'` and `is_protected: true` (protecting it from future automated retention pruning).
+   - Bounded Protection: Flags the backup manifest with `restore_test_status: 'passed'` and `is_protected: true` (retaining the latest 2 verified copies while rolling over older verified baselines).
    - Drops the disposable database and purges scratch files automatically.
 
-4. **Documented Operational Recovery**:
-   - Step-by-step human operator runbook for host failover, emergency point-in-time recovery, and zero-downtime application rollback.
-
-### Backup Manifest Schema (`manifest.json`)
+### Backup Manifest Schema (`manifest.json` Version 2)
 ```json
 {
-  "backup_id": "backup_20261018_114834_hourly",
-  "created_at": "2026-10-18T11:48:34+00:00",
+  "manifest_version": 2,
+  "backup_id": "backup_20261018_121120_hourly",
+  "created_at": "2026-10-18T12:11:20+00:00",
   "frequency": "hourly",
-  "database_name": "buildflow_crm",
-  "migration_count": 16,
-  "table_count": 72,
-  "files": {
-    "database": { "filename": "database.sql", "size": 315480, "checksum": "d140e9...", "is_encrypted": false },
-    "storage": { "filename": "storage.tar.gz", "size": 6512, "checksum": "f183ab...", "is_encrypted": false }
+  "database": {
+    "name": "buildflow_crm",
+    "tables_count": 72,
+    "rows_count": 262,
+    "migrations_count": 16,
+    "dump_file": "database.sql.enc",
+    "dump_size_bytes": 202588,
+    "dump_checksum": "6dab751c4de4f9819cfe6ae30149027ad9e0ef4f2984adfdae9bd302274539c0"
   },
-  "checksum_algorithm": "sha256",
-  "encryption": { "enabled": false, "cipher": "aes-256-cbc" },
+  "storage": {
+    "archive_file": "storage.tar.gz.enc",
+    "archive_size_bytes": 1495,
+    "archive_checksum": "9a050181c7eac67d477a4801d357de40e30b4ca0ab10ddecd38c36c34a49b779",
+    "documents_count": 4
+  },
+  "financial_ledger": {
+    "total_debit": 3494664.07,
+    "total_credit": 3494664.07,
+    "diff": 0.0,
+    "is_balanced": true
+  },
+  "encryption": {
+    "enabled": true,
+    "format_version": 2,
+    "cipher": "aes-256-gcm",
+    "authenticated": true,
+    "key_fingerprint": "df54d6e23190"
+  },
   "validation_status": "valid",
-  "last_validated_at": "2026-10-18T11:48:34+00:00",
+  "validated_at": "2026-10-18T12:11:26+00:00",
   "restore_test_status": "passed",
-  "last_restore_tested_at": "2026-10-18T11:51:24+00:00",
-  "is_protected": true
+  "tested_at": "2026-10-18T12:11:36+00:00",
+  "is_protected": true,
+  "replication_status": "replicated",
+  "replicated_at": "2026-10-18T12:11:31+00:00"
 }
 ```
 
 ### Recovery Point & Time Objectives (RPO / RTO)
-- **RPO SLA (1 Hour)**: Ensured via hourly cron schedule in `routes/console.php` (`hourly()`). Backups older than 120 minutes trigger warning/fail alerts in both `/health` endpoint and `buildflow:preflight`.
-- **RTO SLA (15 Minutes)**: Tested automated restore executes in under 4 seconds for full database and file tree. Complete end-to-end recovery including host-level schema recreation completes well within the 15-minute SLA.
+- **RPO SLA (1 Hour / 60 Minutes)**: Ensured via hourly cron schedule in `routes/console.php` (`hourly()`).
+  - Target RPO: **60 minutes**.
+  - Warning Threshold: **61–75 minutes** (approaching breach).
+  - Critical Breach Threshold: **> 75 minutes** (triggers preflight failure and health alert).
+- **RTO SLA (15 Minutes)**: Tested automated restore executes in **3.8 seconds** for full database and file tree. Complete end-to-end recovery completes well within the 15-minute SLA.
 
 ### Release Preflight & Go-Live Gate (`buildflow:preflight`)
-Audits 13 critical operational domains before deployment:
+Audits 16 critical operational domains before deployment:
 1. Environment & Debug Mode (`production` / `debug: false`)
 2. Application Key (`APP_KEY` present and valid length)
 3. Database & Pending Migrations (0 pending migrations)
@@ -345,9 +375,13 @@ Audits 13 critical operational domains before deployment:
 8. HTTPS & Secure Session Cookies (`APP_URL` https & `SESSION_SECURE_COOKIE`)
 9. Reverse Proxy Trust Configuration (`TRUSTED_PROXIES` restricted)
 10. Reverb WebSocket Daemon & Origins (`REVERB_ALLOWED_ORIGINS` non-wildcard)
-11. Durable Automated Backups (RPO age, validation status, restore test status)
-12. Frontend Production Assets (`public/build/manifest.json` present)
-13. Demo Credentials Suppression (login page masks test accounts in production)
+11. Durable Automated Backups (RPO age <= 60m target)
+12. Backup Cryptographic Integrity (SHA-256 digests and AEAD tags verified)
+13. Isolated Restore Verification (latest restore-tested baseline)
+14. Secondary Off-Host Replication (replica sync verified)
+15. Frontend Production Assets (`public/build/manifest.json` present)
+16. Demo Credentials Suppression (login page masks test accounts in production)
+
 
 
 

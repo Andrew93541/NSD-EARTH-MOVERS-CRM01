@@ -96,7 +96,9 @@ class AutomatedBackupAndReleaseAcceptanceTest extends TestCase
         $backupId = $manifest['backup_id'];
 
         $this->assertTrue($manifest['encryption']['enabled']);
-        $this->assertSame('AES-256-CBC', $manifest['encryption']['cipher']);
+        $this->assertSame('aes-256-gcm', $manifest['encryption']['cipher']);
+        $this->assertTrue($manifest['encryption']['authenticated']);
+        $this->assertSame(2, $manifest['encryption']['format_version']);
         $this->assertFileExists("{$this->testBackupPath}/{$backupId}/database.sql.enc");
         $this->assertFileDoesNotExist("{$this->testBackupPath}/{$backupId}/database.sql");
 
@@ -154,7 +156,7 @@ class AutomatedBackupAndReleaseAcceptanceTest extends TestCase
         $exitCode = Artisan::call('buildflow:backup:create');
         $output = Artisan::output();
 
-        $this->assertSame(0, $exitCode);
+        $this->assertSame(2, $exitCode);
         $this->assertStringContainsString('already running', $output);
 
         $lock->release();

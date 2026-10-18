@@ -133,7 +133,6 @@ class HealthCheckController extends Controller
                 $scannerStatus = 'error_blocking';
                 $scannerMessage = 'ClamAV daemon unreachable; system is in fail-closed mode (uploads and unverified files will be rejected)';
                 if ($isProduction) {
-                    // In production, scanner downtime under fail-closed means document upload operations fail
                     $isHealthy = false;
                 }
             } else {
@@ -151,44 +150,94 @@ class HealthCheckController extends Controller
             'message' => $scannerMessage,
         ];
 
-        // 6. Durable Automated Backups & RPO SLA Tracking
+        // 6. Durable Automated Backups (Separate Creation, Validation, and Restore Verification)
         try {
             $backupManager = app(\App\Services\Backup\BackupManager::class);
             $latestBackup = $backupManager->getLatestBackup();
 
             if ($latestBackup) {
                 $backupAge = $backupManager->getLatestBackupAgeMinutes();
-                $isStale = $backupManager->isBackupStale(120);
+                $rpoStatus = $backupManager->getRpoStatus($backupAge);
                 $isValid = ($latestBackup['validation_status'] ?? '') === 'valid';
                 $isTested = ($latestBackup['restore_test_status'] ?? '') === 'passed';
+                $isEncrypted = (bool) ($latestBackup['encryption']['enabled'] ?? false);
 
                 $backupCheckStatus = 'ok';
-                if ($isStale) {
-                    $backupCheckStatus = 'stale_warning';
-                }
-                if (! $isValid) {
-                    $backupCheckStatus = 'invalid_warning';
+                if ($rpoStatus === 'breached') {
+                    $backupCheckStatus = 'breached';
+                    if ($isProduction) {
+                        $isHealthy = false;
+                    }
+                } elseif ($rpoStatus === 'warning_approaching_breach') {
+                    $backupCheckStatus = 'approaching_breach';
+                } elseif (! $isValid) {
+                    $backupCheckStatus = 'invalid';
+                    if ($isProduction) {
+                        $isHealthy = false;
+                    }
                 }
 
                 $checks['durable_backups'] = [
                     'status' => $backupCheckStatus,
                     'latest_backup_id' => $latestBackup['backup_id'],
                     'age_minutes' => $backupAge,
+                    'rpo_target_minutes' => 60,
+                    'rpo_status' => $rpoStatus,
                     'validation_status' => $latestBackup['validation_status'] ?? 'pending',
                     'restore_test_status' => $latestBackup['restore_test_status'] ?? 'untested',
-                    'rpo_status' => $isStale ? 'breached' : 'satisfied',
+                    'creation' => [
+                        'status' => 'ok',
+                        'created_at' => $latestBackup['created_at'],
+                        'frequency' => $latestBackup['frequency'],
+                    ],
+                    'validation' => [
+                        'status' => $latestBackup['validation_status'] ?? 'pending',
+                        'validated_at' => $latestBackup['validated_at'] ?? null,
+                    ],
+                    'restore_verification' => [
+                        'status' => $latestBackup['restore_test_status'] ?? 'untested',
+                        'tested_at' => $latestBackup['tested_at'] ?? null,
+                        'is_protected' => (bool) ($latestBackup['is_protected'] ?? false),
+                    ],
+                    'encryption' => [
+                        'enabled' => $isEncrypted,
+                        'cipher' => $isEncrypted ? ($latestBackup['encryption']['cipher'] ?? 'unknown') : 'none',
+                        'authenticated' => (bool) ($latestBackup['encryption']['authenticated'] ?? false),
+                        'key_configured' => ! empty(config('backup.encryption.key')),
+                    ],
                 ];
             } else {
                 $checks['durable_backups'] = [
                     'status' => 'missing',
                     'message' => 'No durable backups found in storage.',
-                    'rpo_status' => 'breached',
+                    'rpo_status' => 'missing',
                 ];
+                if ($isProduction) {
+                    $isHealthy = false;
+                }
             }
         } catch (\Throwable $e) {
             $checks['durable_backups'] = [
                 'status' => 'error',
                 'message' => 'Failed to audit backup registry: ' . $e->getMessage(),
+            ];
+        }
+
+        // 7. Secondary Backup Replication
+        try {
+            $replicator = app(\App\Services\Backup\Replication\BackupReplicationInterface::class);
+            $repStatus = $replicator->getReplicationStatus();
+            $checks['secondary_replication'] = [
+                'status' => $repStatus['status'],
+                'enabled' => $repStatus['enabled'],
+                'latest_replicated_id' => $repStatus['latest_replicated_id'],
+                'latest_replicated_at' => $repStatus['latest_replicated_at'],
+                'total_replicas' => $repStatus['total_replicas'],
+            ];
+        } catch (\Throwable $e) {
+            $checks['secondary_replication'] = [
+                'status' => 'unverified',
+                'message' => 'Secondary replication audit error: ' . $e->getMessage(),
             ];
         }
 

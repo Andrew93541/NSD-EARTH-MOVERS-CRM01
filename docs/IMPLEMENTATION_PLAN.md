@@ -503,4 +503,38 @@ This document outlines the phased implementation plan, tech stack alignment, arc
   - Full PHPUnit Suite: **164 tests, 1007 assertions, 0 errors, 100% passing**.
   - Frontend production build (`npm run build`): Vite v8.3.4 (286ms, 110.97 kB CSS / 352.54 kB JS).
 
+---
+
+### Phase 14: Backup Cryptography Audit, Recovery SLA Enforcement & Final Release Safety (Completed & Verified)
+- [x] Cryptographic Authenticated Encryption (AEAD AES-256-GCM):
+  - Replaced unauthenticated AES-256-CBC with standard OpenSSL AEAD AES-256-GCM (`cipher => AES-256-GCM`, `format_version => 2`).
+  - Binary envelope (`BFENC\x02\x01\x0C\x10`): 12-byte IV + 16-byte Poly1305/GMAC tag + ciphertext.
+  - Associated Authenticated Data (AAD): Context-bound to `BuildFlow-AEAD-v2|{backup_id}|{filename}` to prevent ciphertext-swap attacks between files or generations.
+  - Cryptographically detects ciphertext modification, altered IVs, truncated files, mismatched tags, and wrong keys, raising fatal `RuntimeException` without leaking secrets.
+  - Transparent non-destructive backward compatibility for Version 1 (AES-256-CBC) backups with deprecation logging.
+  - Key separation: `BACKUP_ENCRYPTION_KEY` distinct from `APP_KEY`; non-sensitive SHA-256 key fingerprints in `manifest.json`.
+- [x] Process Table Credential Concealment:
+  - Rewrote database dump and restore execution in `BackupManager` and `VerifyDisasterRecoveryCommand` to use `proc_open` with environment-isolated `MYSQL_PWD`.
+  - Zero database passwords appear in `ps aux` command-line process arguments.
+- [x] RPO Policy & Critical SLA Breach Enforcement:
+  - Reconciled discrepancy between 60m RPO and 120m threshold: Defined 60m target RPO (`rpo_minutes`), 15m execution grace (`execution_grace_minutes`), and 75m critical SLA breach (`critical_breach_minutes`).
+  - Enforced 75m critical threshold across `/health` (HTTP 503) and `buildflow:preflight --strict` (Exit 1).
+- [x] Secondary Off-Host Replication Pipeline:
+  - Designed `BackupReplicationInterface` and implemented `LocalSecondaryReplicationProvider`.
+  - Created `php artisan buildflow:backup:replicate` with 3x retry backoff, verifying remote SHA-256 checksums and transfer parity against primary files before emitting `replication_receipt.json`.
+  - Scheduled hourly replication at `:15` past the hour in `routes/console.php`.
+- [x] Bounded Protected-Copy Lifecycle Policy:
+  - Resolved unbounded storage growth by implementing `max_protected_restore_copies = 2`.
+  - Older restore-tested copies roll over to `is_protected = false`, enabling tier retention pruning.
+  - Guaranteed retention invariants: The single newest valid backup overall and the single newest restore-tested baseline are never purged.
+- [x] Disaster Recovery Safety Hardening:
+  - Hardened `VerifyDisasterRecoveryCommand` with `assertSafeRestoreTarget` strictly refusing to target active databases (`buildflow_crm`, `production`, `live`, or `DB_DATABASE`).
+- [x] Preflight Gate Expansion:
+  - Expanded `buildflow:preflight` from 13 to **16 operational domains**, adding backup AEAD encryption verification, restore baseline verification, and secondary replication checks.
+- [x] Automated Feature Tests (`tests/Feature/BackupCryptographyAndRecoverySlaTest.php`):
+  - 11 comprehensive tests: AEAD encryption/decryption round-trip, tampered ciphertext rejection, tampered tag rejection, wrong key rejection, truncated file rejection, legacy CBC backward compatibility, RPO 60m/75m thresholds, secondary replication, bounded retention rollover, destructive restore prevention, and `/health` reporting.
+  - Full PHPUnit Suite: **175 tests, 1081 assertions, 0 errors, 100% passing** (14.4s).
+  - Frontend production build (`npm run build`): Vite v8.3.4 (242ms, 110.97 kB CSS / 352.54 kB JS).
+
+
 

@@ -10,7 +10,7 @@ class CreateBackupCommand extends Command
 {
     protected $signature = 'buildflow:backup:create 
                             {--frequency=hourly : Frequency tier (hourly, daily, monthly)} 
-                            {--encrypt : Encrypt snapshot with AES-256}';
+                            {--encrypt : Encrypt snapshot with AEAD AES-256-GCM}';
 
     protected $description = 'Create a durable, persistent backup of the MySQL database and private document storage';
 
@@ -18,11 +18,11 @@ class CreateBackupCommand extends Command
     {
         $this->info("=== BuildFlow Durable Backup Engine ===");
 
-        // Prevent overlapping backup jobs
+        // Prevent overlapping backup jobs with atomic cache lock
         $lock = Cache::lock('buildflow_backup_running_lock', 600);
         if (! $lock->get()) {
             $this->warn("A backup process is already running. Aborting this run to prevent collisions.");
-            return Command::SUCCESS;
+            return 2; // Exit code 2: Busy / Locked
         }
 
         try {
@@ -38,6 +38,9 @@ class CreateBackupCommand extends Command
                 $this->line("  [OK] Private storage: {$manifest['storage']['archive_file']} (" . round($manifest['storage']['archive_size_bytes'] / 1024, 2) . " KB)");
             }
             $this->line("  [OK] Ledger balanced: Dr ₹" . number_format($manifest['financial_ledger']['total_debit'], 2) . " == Cr ₹" . number_format($manifest['financial_ledger']['total_credit'], 2));
+            if (! empty($manifest['encryption']['enabled'])) {
+                $this->line("  [OK] Encryption: {$manifest['encryption']['cipher']} (AEAD format v{$manifest['encryption']['format_version']}, key fingerprint: {$manifest['encryption']['key_fingerprint']})");
+            }
 
             // Validate the freshly created backup
             $this->comment("Validating backup checksums and archive readability...");

@@ -583,17 +583,63 @@ A rigorous release engineering, automated backup, and production acceptance audi
 
 ---
 
+### 10.10. Backup Cryptography Audit, Recovery SLA Enforcement & Final Release Safety (Phase 14)
+
+Phase 14 conducted an exhaustive security and reliability audit of the backup engine, disaster recovery tooling, and operational runbooks.
+
+1. **Cryptographic Integrity & AEAD AES-256-GCM (Format v2)**:
+   - **Vulnerability Identified**: The prior AES-256-CBC encryption scheme lacked authenticated integrity protection; manifest checksums were stored alongside artifacts and could not detect malicious ciphertext modification if an adversary had write access to both.
+   - **AEAD Construction**: Upgraded to standard OpenSSL AES-256-GCM (`BFENC\x02\x01\x0C\x10` binary envelope) incorporating:
+     - 12-byte cryptographically random IV (`random_bytes(12)`).
+     - 16-byte Poly1305/GMAC authentication tag (`openssl_encrypt` with `$tag`).
+     - Associated Authenticated Data (AAD) contextual binding: `BuildFlow-AEAD-v2|{backup_id}|{filename}`, preventing file-substitution or generation-swapping attacks.
+   - **Tamper & Truncation Detection**: Authenticated detection of modified ciphertext bits, altered IVs, mismatched tags, incorrect keys, and truncated streams. Rejections raise fatal `RuntimeException` during validation and restore dry-runs without leaking plaintext data.
+   - **Legacy Compatibility**: Retained non-destructive backward compatibility for Version 1 (AES-256-CBC) backups with deprecation logging via `allow_legacy_cbc_decrypt`.
+   - **Secret Separation & Concealment**: Manifests and logs never store keys or passphrases; manifests record only non-sensitive SHA-256 key fingerprints. Dump commands use `proc_open` with `MYSQL_PWD` passed in the isolated process environment, preventing CLI password exposure in `ps aux` process listings.
+
+2. **Recovery-Point Objective (RPO) SLA Enforcement**:
+   - **Policy Reconciled**: Reconciled the prior discrepancy between the stated 60-minute RPO and a 120-minute monitoring threshold.
+   - **Configured Thresholds**:
+     - Target RPO: **60 minutes** (`rpo_minutes = 60`).
+     - Execution Grace Period: **15 minutes** (`execution_grace_minutes = 15`) to accommodate mysqldump, tar compression, and AEAD encryption overhead.
+     - Critical SLA Breach Threshold: **75 minutes** (`critical_breach_minutes = 75`).
+   - **Gate Integration**: Both `/health` (HTTP 503) and `buildflow:preflight --strict` (Exit 1) enforce the 75-minute critical threshold against validated, restore-tested backups.
+
+3. **Secondary Off-Host Replication Pipeline**:
+   - **Abstraction & Interface**: Implemented `BackupReplicationInterface` and `LocalSecondaryReplicationProvider` with extensible storage drivers.
+   - **Integrity Verification**: Replicates snapshots to secondary destinations (e.g. `storage/app/backups_secondary` or isolated mount), computes remote SHA-256 checksums, verifies byte-for-byte transfer parity against source files, and writes an atomic `replication_receipt.json`.
+   - **CLI & Automation**: Added `php artisan buildflow:backup:replicate` with 3x exponential backoff retries, scheduled hourly at `:15` past the hour in `routes/console.php`.
+
+4. **Bounded Protected-Copy Lifecycle Policy**:
+   - **Vulnerability Identified**: Unchecked `is_protected = true` flags on every restore-tested backup would eventually cause disk exhaustion.
+   - **Bounded Rotation**: Enforced `max_protected_restore_copies = 2`. When a new restore test passes, older tested copies are rolled over to `is_protected = false`, allowing tier pruning to remove obsolete copies.
+   - **Safety Invariant**: Pruning logic guarantees that the newest valid backup overall and the newest restore-tested baseline are never purged under any circumstances.
+
+5. **Disaster Recovery Hardening**:
+   - Hardened `buildflow:verify-recovery` with `assertSafeRestoreTarget` preventing any automated restore test from targeting active databases (`buildflow_crm`, `production`, `live`, or `DB_DATABASE`).
+   - Fully concealed MySQL passwords from process arguments via environment-isolated `MYSQL_PWD`.
+
+6. **Preflight Expansion & Automated Test Suite**:
+   - Preflight gate expanded from 13 to **16 operational domains**, adding backup AEAD encryption verification, restore baseline verification, and secondary replication checks.
+   - Feature test suite added: `tests/Feature/BackupCryptographyAndRecoverySlaTest.php` (11 tests, 74 assertions).
+   - Full PHPUnit test suite: **175 passed, 1081 assertions, 0 errors, 100% passing** (14.4s).
+   - Frontend production build (`npm run build`): Vite v8.3.4 (242ms, 110.97 kB CSS / 352.54 kB JS).
+
+---
+
 ## 11. Go-Live Decision & Executive Readiness Sign-Off
 
 ### Executive Recommendation: **READY WITH STATED LIMITATIONS**
 
-The BuildFlow CRM/ERP core application codebase has satisfied all functional, financial, security, backup durability, and data-integrity requirements necessary for production operations:
+The BuildFlow CRM/ERP core application codebase has satisfied all functional, financial, security, backup durability, cryptographic authentication, and data-integrity requirements necessary for production operations:
 - **Ledger Integrity**: Balanced double-entry general ledger (Total Debits ₹3,494,664.07 == Total Credits ₹3,494,664.07) with immutable posted journal entries and audited reversals.
 - **Tenant Isolation**: Multi-tenant separation enforced server-side across all database queries, polymorphic document storage, real-time Reverb channels, and global search.
 - **Fail-Closed Document Security**: Private disk storage outside web root (`serve => false`), SHA-256 binary checksums, and strict fail-closed anti-malware enforcement.
-- **Durable Automated Backups & DR**: Hourly snapshot backups, daily checksum validations, isolated restore testing (`buildflow:verify-recovery`), and retention protection for verified recovery copies.
-- **Release Preflight Gate**: Automated 13-domain preflight audit (`buildflow:preflight`) distinguishing developer advisory checks from strict production blockers.
-- **Automated Test Coverage**: 164 automated tests with 1007 assertions, 0 errors, 100% pass rate.
+- **Authenticated AEAD Backups**: Authenticated AES-256-GCM encryption with 16-byte Poly1305/GMAC tags, AAD context binding, and byte-level tamper/truncation detection.
+- **Secondary Replication & SLA Enforcement**: Automated hourly off-host replication pipeline (`buildflow:backup:replicate`) with transfer checksum verification and an enforced 60m RPO policy (75m critical threshold).
+- **Safe DR & Bounded Retention**: Automated isolated disaster recovery verification (`buildflow:verify-recovery`), active database restore guards, and bounded protected-copy retention lifecycle (`max_protected_restore_copies = 2`).
+- **Release Preflight Gate**: Automated 16-domain preflight audit (`buildflow:preflight --strict`) distinguishing developer advisory checks from strict production blockers.
+- **Automated Test Coverage**: 175 automated tests with 1081 assertions, 0 errors, 100% pass rate.
 
 Live business operations may proceed immediately for core construction operations, subject to the host infrastructure prerequisites documented below.
 
@@ -611,13 +657,16 @@ Live business operations may proceed immediately for core construction operation
 | **RSK-08** | Low | Reverse Proxy | Wildcard proxy trust (`*`) could allow IP/scheme spoofing when deployed without upstream proxy. | Restricted trusted proxies to `TRUSTED_PROXIES` environment variable in production. | **Verified** (`bootstrap/app.php`) |
 | **RSK-09** | High | Disaster Recovery | Hourly RPO was claimed without persistent storage or automated scheduler definitions. | Engineered `BackupManager`, hourly/daily/weekly scheduler in `routes/console.php`, atomic `manifest.json`, and retention protection. | **Verified** (`AutomatedBackupAndReleaseAcceptanceTest`) |
 | **RSK-10** | Medium | Release Governance | No automated gate prevented deployment with missing production environment requirements. | Created `buildflow:preflight {--strict}` evaluating 13 operational domains with actionable remediation. | **Verified** (`ReleasePreflightCommand`) |
+| **RSK-11** | High | Backup Cryptography | Legacy AES-256-CBC encryption lacked cryptographic authentication; manifest checksums could be spoofed if ciphertext altered. | Upgraded to AEAD AES-256-GCM (format v2) with 16-byte Poly1305/GMAC tags and AAD context binding. | **Verified** (`BackupCryptographyAndRecoverySlaTest`) |
+| **RSK-12** | Medium | Storage Durability | Indefinite `is_protected = true` flags on restore-tested backups would cause host disk exhaustion. | Enforced bounded protected-copy retention lifecycle (`max_protected_restore_copies = 2`) with baseline protection invariants. | **Verified** (`BackupCryptographyAndRecoverySlaTest`) |
 
 ### Stated Limitations & Production Infrastructure Handover Prerequisites
 Before opening the application to public internet traffic on the live server, the host DevOps/infrastructure operator must complete the following 4 tasks:
 1. **Provision Host ClamAV Daemon**: Install and start ClamAV (`clamd`) on the production host or sidecar container at port 3310 (or unix socket `/var/run/clamav/clamd.ctl`).
 2. **Reverse Proxy TLS & WSS Termination**: Configure Nginx, Caddy, or Cloudflare to terminate HTTPS on port 443 with valid SSL certificates, and proxy WebSocket connections (`/reverb/`) to port 8080.
-3. **Environment Secret Rotation**: Replace default development credentials, database password, application key (`APP_KEY`), and Reverb keys with freshly generated production secrets.
-4. **Host Scheduler Crontab & Off-Host Backup Sync**: Configure the standard Laravel scheduler crontab (`* * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1`) and configure an off-host sync (e.g. AWS S3 Glacier, Azure Archive) for retained backups to meet statutory 6–8 year accounting retention mandates.
+3. **Environment Secret Rotation & Key Governance**: Set `BACKUP_ENCRYPTION_KEY` in production secrets. Strictly adhere to `docs/WORKFLOWS.md` Section 14.2: **NEVER run `php artisan key:generate` on an existing deployment**. Replace default database passwords and Reverb credentials with least-privilege production credentials.
+4. **Host Scheduler Crontab & Off-Host Cloud Sync**: Configure the host scheduler crontab (`* * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1`) to execute hourly creation (`:00`), secondary replication (`:15`), daily validation (`02:00`), and weekly DR tests (`03:00` Sun). Configure cloud cold storage sync (e.g. AWS S3 Glacier, Azure Archive) on the secondary replica directory for statutory multi-year tax compliance.
+
 
 
 

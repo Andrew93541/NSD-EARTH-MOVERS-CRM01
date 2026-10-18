@@ -78,22 +78,15 @@ class LocalSecondaryReplicationProvider implements BackupReplicationInterface
                 break;
             }
 
-            // Verify remote checksum
-            $expectedChecksum = null;
-            if ($file === $manifest['database']['dump_file']) {
-                $expectedChecksum = $manifest['database']['dump_checksum'];
-            } elseif (! empty($manifest['storage']['archive_file']) && $file === $manifest['storage']['archive_file']) {
-                $expectedChecksum = $manifest['storage']['archive_checksum'];
-            }
+            // Verify remote transfer checksum matches primary source file hash
+            $sourceChecksum = hash_file('sha256', $srcFile);
+            $replicaChecksum = hash_file('sha256', $dstFile);
 
-            if ($expectedChecksum) {
-                $actualChecksum = hash_file('sha256', $dstFile);
-                if ($actualChecksum !== $expectedChecksum) {
-                    $errors[] = "Checksum mismatch on replica {$file}: expected {$expectedChecksum}, got {$actualChecksum}";
-                    break;
-                }
-                $verifiedFiles[$file] = $actualChecksum;
+            if ($replicaChecksum !== $sourceChecksum) {
+                $errors[] = "Checksum mismatch on replica {$file}: expected source {$sourceChecksum}, got {$replicaChecksum}";
+                break;
             }
+            $verifiedFiles[$file] = $replicaChecksum;
         }
 
         if (count($errors) > 0) {

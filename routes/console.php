@@ -14,12 +14,19 @@ Artisan::command('inspire', function () {
 |--------------------------------------------------------------------------
 |
 | 1. Hourly: Atomic durable backup creation (MySQL + private storage)
-| 2. Daily (02:00): Automated validation of backup archive checksums
-| 3. Weekly (Sun 03:00): Isolated non-destructive disaster recovery restore
+| 2. Hourly (at :15): Replicate verified backup to secondary destination
+| 3. Daily (02:00): Automated validation of backup archive checksums
+| 4. Weekly (Sun 03:00): Isolated non-destructive disaster recovery restore
 |
 */
 Schedule::command('buildflow:backup:create --frequency=hourly')
     ->hourly()
+    ->withoutOverlapping(30)
+    ->onOneServer()
+    ->runInBackground();
+
+Schedule::command('buildflow:backup:replicate')
+    ->hourlyAt(15)
     ->withoutOverlapping(30)
     ->onOneServer()
     ->runInBackground();

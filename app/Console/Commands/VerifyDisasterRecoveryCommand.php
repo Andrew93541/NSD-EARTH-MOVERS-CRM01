@@ -27,11 +27,6 @@ class VerifyDisasterRecoveryCommand extends Command
             ? config('database.connections.mysql.database') 
             : 'buildflow_crm';
 
-        $targetDb = (string) $this->option('target-db');
-
-        // CRITICAL SAFETY GUARD: Prevent destructive restore onto active production/development database!
-        $this->assertSafeRestoreTarget($targetDb, $activeDb);
-
         $tempDir = storage_path('app/backup_verification_' . time());
         $restoreStorageDir = "{$tempDir}/restored_storage";
 
@@ -39,6 +34,9 @@ class VerifyDisasterRecoveryCommand extends Command
         File::ensureDirectoryExists($restoreStorageDir, 0700);
 
         try {
+            $targetDb = (string) $this->option('target-db');
+            // CRITICAL SAFETY GUARD: Prevent destructive restore onto active production/development database!
+            $this->assertSafeRestoreTarget($targetDb, $activeDb);
             $mysqlHost = config('database.connections.mysql.host', '127.0.0.1');
             $mysqlPort = config('database.connections.mysql.port', 3306);
             $mysqlUser = config('database.connections.mysql.username', 'root');

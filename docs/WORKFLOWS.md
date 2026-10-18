@@ -613,14 +613,16 @@ php artisan buildflow:backup:create
 # Specific frequency tier (hourly, daily, monthly)
 php artisan buildflow:backup:create --frequency=daily
 
-# Encrypted backup with OpenSSL AES-256-CBC
+# Authenticated AEAD Encrypted backup (AES-256-GCM Format v2)
 php artisan buildflow:backup:create --encrypt
 ```
 - **Atomic Execution**: Dumps to `database.sql.tmp` and renames to `database.sql` upon successful exit.
+- **AEAD Encryption (v2)**: When `--encrypt` is passed, archives are encrypted using AES-256-GCM authenticated encryption (`BFENC\x02\x01\x0C\x10` envelope) with a 12-byte IV, 16-byte authentication tag, and AAD contextual binding (`BuildFlow-AEAD-v2|{backup_id}|{filename}`).
+- **CLI Password Concealment**: MySQL dump commands are spawned using `proc_open` with `MYSQL_PWD` passed in the isolated process environment, preventing database passwords from appearing in `ps aux` process listings.
 - **Archive Generation**: Creates `storage.tar.gz` capturing private files (`storage/app/private`).
-- **Atomic Manifest**: Writes `manifest.json` with sizes, checksums, table count (72), and migration count (16).
+- **Atomic Manifest**: Writes `manifest.json` with sizes, checksums, table count (72), migration count (16), cipher specs, and key fingerprints.
 - **Concurrency Guard**: Atomic lock `buildflow_backup_running_lock` prevents concurrent overlapping executions.
-- **Retention Pruning**: Automatically retains 24 hourly, 30 daily, and 12 monthly backups while strictly protecting any backup marked `is_protected = true`.
+- **Retention Pruning**: Automatically retains configured tiers (24 hourly, 30 daily, 12 monthly) with bounded protected-copy lifecycle management.
 
 #### B. Backup Integrity Validation
 ```bash
@@ -633,10 +635,27 @@ php artisan buildflow:backup:validate backup_20261018_114834_hourly
 - Re-reads and parses `manifest.json`.
 - Validates presence and non-zero size of database dump and storage tarball.
 - Re-computes SHA-256 hashes and compares against recorded manifest digests.
-- Tests archive listing (`tar -tzf`) and test-decrypts encrypted archives.
+- Tests archive listing (`tar -tzf`) and verifies AEAD authentication tags / test-decrypts encrypted archives without writing plaintext to disk.
 - Updates `validation_status` (`valid` / `corrupt`) and `last_validated_at`.
 
-#### C. Isolated Restore & Disaster Recovery Verification
+#### C. Secondary Backup Replication
+```bash
+# Replicate the latest validated backup to secondary off-host storage
+php artisan buildflow:backup:replicate
+
+# Replicate a specific historical backup
+php artisan buildflow:backup:replicate backup_20261018_114834_hourly
+
+# Run with verbose transfer reporting
+php artisan buildflow:backup:replicate -v
+```
+- Copies snapshot archives and manifest to the secondary destination (e.g. `storage/app/backups_secondary` or cloud storage adapter).
+- Calculates remote SHA-256 checksums and performs byte-for-byte transfer parity verification against primary files.
+- Writes an atomic `replication_receipt.json` on the secondary destination and updates primary `manifest.json` with `is_replicated = true` and timestamp.
+- Implements exponential backoff retries (up to 3 attempts) for transient I/O or network failures.
+- Enforces secondary retention pruning (e.g., retaining 24 hourly secondary replicas).
+
+#### D. Isolated Restore & Disaster Recovery Verification
 ```bash
 # Execute isolated restore test on the latest validated backup
 php artisan buildflow:verify-recovery
@@ -644,22 +663,29 @@ php artisan buildflow:verify-recovery
 # Target a specific durable backup directory
 php artisan buildflow:verify-recovery --backup=backup_20261018_114834_hourly
 ```
-- Provisions disposable database (`buildflow_restore_test`) and temporary directory.
+- **Active Database Protection**: Strictly refuses to target the active database (`DB_DATABASE`) or protected databases (`buildflow_crm`, `production`, `live`). Aborts with an error if targeting is unsafe.
+- Provisions disposable sandbox database (`buildflow_restore_test`) using environment-isolated `MYSQL_PWD`.
 - Restores database schema and records.
 - Confirms 100% table count parity (72 tables) and exact row counts.
 - Verifies migration count (16 applied).
 - Verifies General Ledger Trial Balance balance ($\sum \text{Debits} == \sum \text{Credits}$).
 - Unpacks storage archive and verifies SHA-256 binary hash digest matches across all document files.
-- On success: Marks backup manifest with `restore_test_status = 'passed'` and `is_protected = true`.
+- On success: Marks backup manifest with `restore_test_status = 'passed'`, `tested_at = now()`, and `is_protected = true`. Rolls over older restore-tested copies to keep protection bounded (`max_protected_restore_copies = 2`).
 - Completely drops `buildflow_restore_test` and removes temporary files. Live database is never touched.
 
-### 3. Automated Scheduling & Retention Configuration
+### 3. Automated Scheduling, Retention & SLA Configuration
 
 The application defines automated backup jobs in `routes/console.php`:
 ```php
 // Hourly durable backup (creates snapshot, validates, and prunes expired backups)
 Schedule::command('buildflow:backup:create --frequency=hourly')
     ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Hourly secondary off-host backup replication at :15 past the hour
+Schedule::command('buildflow:backup:replicate')
+    ->hourlyAt(15)
     ->withoutOverlapping()
     ->runInBackground();
 
@@ -680,27 +706,165 @@ On the production server, configure the single standard Laravel scheduler cron:
 * * * * * cd /var/www/buildflow && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-#### Retention Policy & Statutory Considerations
-- **Configured Defaults**: 24 hourly snapshots, 30 daily snapshots, 12 monthly snapshots.
-- **Protected Recovery Baseline**: The retention engine (`BackupManager::pruneOldBackups`) skips any backup marked `is_protected: true` and the newest valid backup overall.
-- **Statutory Audit Retention**: For construction accounting and tax compliance (Indian Companies Act, GST Act Sec 36, Income Tax Act Sec 44AA requiring 6–8 years of books of accounts), annual and quarterly financial archives must be synced off-host to cold storage (e.g. AWS S3 Glacier, Azure Archive) by the authorized infrastructure operator.
+#### Recovery-Point Objective (RPO) Policy & SLA
+- **Target RPO**: 60 minutes (1 Hour).
+- **Execution Grace Period**: 15 minutes to allow for mysqldump, tar compression, and AEAD encryption overhead.
+- **Critical SLA Breach Threshold**: 75 minutes. If no validated backup exists with an age under 75 minutes, `/health` transitions to `unhealthy` (HTTP 503) and `buildflow:preflight --strict` exits with code 1.
+- **Operational Assumptions**: Requires the host system crontab (`* * * * * php artisan schedule:run`) to be running continuously. Backups must be validated and replication status monitored.
 
-### 4. Release Preflight & Go-Live Gate (`buildflow:preflight`)
+#### Bounded Protected-Copy Lifecycle Policy
+- **The Problem**: Marking every successfully restore-tested backup permanently protected (`is_protected = true`) would eventually exhaust host storage disks over months of automated testing.
+- **The Policy**:
+  - `max_protected_restore_copies = 2`: Only the newest 2 restore-tested backups retain `is_protected = true`.
+  - When a new restore test passes, older restore-tested copies are rolled over to `is_protected = false`, allowing normal tier retention (24 hourly, 30 daily, 12 monthly) to prune them safely.
+  - **Absolute Invariant**: The retention engine (`BackupManager::pruneOldBackups`) will **NEVER** delete:
+    1. Any backup currently marked `is_protected = true`.
+    2. The single newest valid backup overall (even if unprotected).
+    3. The single newest restore-tested baseline backup (even if unprotected).
+
+---
+
+## 14. Cryptography, Key Management & Safe Disaster Restoration Runbook (Phase 14)
+
+### 1. Backup AEAD Cryptographic Specification
+
+BuildFlow Phase 14 implements an authenticated encryption architecture using standard AES-256-GCM.
+
+```
++-----------------------------------------------------------------------------------------------+
+| Bytes 0..7  | Magic Header: "BFENC\x02\x01\x0C" (ASCII "BFENC" + Version 0x02 + Cipher GCM)  |
+| Byte 8      | IV Length: 0x0C (12 bytes)                                                      |
+| Byte 9      | Tag Length: 0x10 (16 bytes)                                                     |
+| Bytes 10..21| Initialization Vector: 12 cryptographically random bytes (random_bytes)         |
+| Bytes 22..37| AEAD Authentication Tag: 16-byte Poly1305/GMAC tag from OpenSSL GCM cipher      |
+| Bytes 38..N | Ciphertext: AES-256-GCM encrypted payload                                       |
++-----------------------------------------------------------------------------------------------+
+```
+
+- **Associated Authenticated Data (AAD)**: Context-bound as `BuildFlow-AEAD-v2|{backup_id}|{filename}`. This prevents ciphertext-swap attacks between different backup files or backup generations.
+- **Key Separation**: Backup encryption utilizes `BACKUP_ENCRYPTION_KEY` (a dedicated 32-byte / 64-hex-char secret), falling back to `APP_KEY` if not configured. Plaintext secrets are never stored in manifests or logs. Manifests store only a non-sensitive SHA-256 key fingerprint (`hash('sha256', $key)`).
+- **Legacy CBC Compatibility**: Legacy archives created under Version 1 (`BFENC\x01` or standard CBC with prepended 16-byte IV) are transparently decrypted if `allow_legacy_cbc_decrypt` is `true`. A deprecation notice is emitted to operational logs encouraging re-encryption under v2.
+
+### 2. Application Key (`APP_KEY`) vs Credential Rotation Procedures
+
+Misunderstanding key rotation is a common cause of catastrophic data loss. Follow these strict runbooks:
+
+#### A. Initial Provisioning (Day-0 Greenfield Only)
+On a brand new installation before any user accounts, active sessions, or encrypted data exist:
+```bash
+php artisan key:generate
+```
+> [!CAUTION]
+> **NEVER run `php artisan key:generate` on an existing or production deployment!**
+> Overwriting `APP_KEY` immediately invalidates:
+> - All active user sessions and "Remember Me" authentication cookies.
+> - Password reset tokens.
+> - Any application data encrypted with Laravel's `Crypt` facade.
+
+#### B. Rotating Application Key (`APP_KEY`) on an Active Deployment
+If an application key compromise is suspected on an active system:
+1. Schedule an authorized maintenance window and take the application offline: `php artisan down`.
+2. Document the old key (`OLD_KEY`).
+3. Set the new key in `.env`.
+4. If encrypted database columns exist, execute a key re-encryption migration script using `Illuminate\Encryption\Encrypter` with the old key to decrypt and the new key to re-encrypt before committing.
+5. Invalidate all active sessions by flushing the session store: `php artisan session:table` or redis flush.
+6. Verify access and bring application online: `php artisan up`.
+
+#### C. Rotating Database Credentials (`DB_PASSWORD`)
+1. Create or update the user credentials on the MySQL server with least-privilege grants:
+   ```sql
+   ALTER USER 'buildflow_user'@'localhost' IDENTIFIED BY 'NEW_STRONG_PASSWORD';
+   FLUSH PRIVILEGES;
+   ```
+2. Update `DB_PASSWORD` in `.env`.
+3. Clear configuration cache: `php artisan config:clear && php artisan config:cache`.
+4. Test database connectivity: `php artisan db:monitor`.
+
+#### D. Rotating Reverb WebSocket Credentials
+1. Generate new Reverb App ID, Key, and Secret:
+   - `REVERB_APP_ID=<new_id>`
+   - `REVERB_APP_KEY=<new_key>`
+   - `REVERB_APP_SECRET=<new_secret>`
+2. Update `.env` on the server and update `VITE_REVERB_APP_KEY` in frontend build settings.
+3. Rebuild frontend assets: `npm run build`.
+4. Restart the Reverb supervisor daemon: `sudo supervisorctl restart buildflow-reverb`.
+
+### 3. Production Disaster Restoration Runbook
+
+When catastrophic failure (host hardware loss, disk failure, or severe data corruption) requires a full production restore:
+
+#### Phase 1: Assessment & Maintenance Window
+1. Announce an emergency maintenance window to company management.
+2. Direct DNS or load balancer to maintenance page or run `php artisan down`.
+3. Identify the target recovery point: Select the newest validated, restore-tested backup from primary storage (`storage/app/backups`) or secondary replication storage (`storage/app/backups_secondary`).
+
+#### Phase 2: Live Database Safety Guard
+> [!WARNING]
+> Restoring a database snapshot will overwrite all tables and discard any transactions recorded after the snapshot timestamp. Ensure management authorizes the recovery point.
+
+1. **Take a Safety Pre-Restore Snapshot** of the current database (even if damaged) before restoring:
+   ```bash
+   mysqldump -u <user> -p buildflow_crm > /var/backups/buildflow_pre_restore_safety_$(date +%s).sql
+   ```
+2. Confirm the target database name. The automated restore verification tool (`buildflow:verify-recovery`) will refuse to run against `buildflow_crm`, `production`, or `live`. Production manual restores must be executed explicitly by an authorized sysadmin.
+
+#### Phase 3: Decryption & Restoration Execution
+1. If the backup is encrypted, decrypt the database dump and storage archive using `BackupManager`:
+   ```bash
+   # Validate integrity and AEAD authentication tags
+   php artisan buildflow:backup:validate <backup_id>
+   ```
+2. Restore MySQL schema and records:
+   ```bash
+   # Secure execution using MYSQL_PWD to prevent CLI process snooping
+   export MYSQL_PWD="<production_db_password>"
+   mysql -u <production_db_user> -h <db_host> buildflow_crm < "storage/app/backups/<backup_id>/database.sql"
+   unset MYSQL_PWD
+   ```
+3. Restore private storage files:
+   ```bash
+   tar -xzf "storage/app/backups/<backup_id>/storage.tar.gz" -C storage/app/private/
+   ```
+4. Fix storage permissions:
+   ```bash
+   chown -R www-data:www-data storage/app/private
+   chmod -R 750 storage/app/private
+   ```
+
+#### Phase 4: Post-Restore Verification & Smoke Testing
+1. Run database migration check: `php artisan migrate:status` (should show 0 pending migrations).
+2. Verify General Ledger Trial Balance balance:
+   ```bash
+   php artisan tinker --execute="echo app(\App\Services\Accounting\LedgerService::class)->isTrialBalanceBalanced() ? 'BALANCED' : 'IMBALANCE';"
+   ```
+3. Rebuild application caches:
+   ```bash
+   php artisan config:cache
+   php artisan route:cache
+   php artisan view:cache
+   ```
+4. Query `/health` endpoint to verify database latency, storage disk, and daemon statuses.
+5. Log in via browser and perform smoke testing: verify recent projects, client invoices, and muster rolls.
+6. Bring the application online: `php artisan up`.
+
+---
+
+## 15. Release Preflight & Go-Live Gate (`buildflow:preflight`)
 
 Run the preflight command before every release or deployment:
 ```bash
-# Advisory mode (shows all 13 checks; warns on missing dev infrastructure; exits 0)
+# Advisory mode (shows all 16 checks; warns on missing dev infrastructure; exits 0)
 php artisan buildflow:preflight
 
 # Strict production mode (fails with exit code 1 if any mandatory check fails)
 php artisan buildflow:preflight --strict
 ```
 
-#### 13 Audited Domains
+### 16 Audited Operational Domains
 | Domain | Check Name | Target State | Failure Remediation |
 |---|---|---|---|
 | **01. Environment** | Application Environment & Debug | `production` / `debug: false` | Set `APP_ENV=production` and `APP_DEBUG=false` in `.env`. |
-| **02. Encryption** | Application Key | 32-character base64 key | Verify `APP_KEY` exists. Do not rotate keys blindly! |
+| **02. Encryption** | Application Key & Backup Cipher | 32-char key / AES-256-GCM v2 | Verify `APP_KEY` exists; ensure `cipher => AES-256-GCM`. |
 | **03. Database** | Database Connectivity & Migrations | Connected, 0 pending migrations | Run `php artisan migrate --force`. |
 | **04. Accounting** | General Ledger Balance Invariant | Trial Balance balanced (Dr == Cr) | Audit unposted or unbalanced journal entries. |
 | **05. Storage** | Private Document Storage Privacy | `serve => false` on local disk | Ensure `config/filesystems.php` has `'serve' => false`. |
@@ -709,18 +873,25 @@ php artisan buildflow:preflight --strict
 | **08. HTTPS & Cookies** | HTTPS & Secure Session Cookies | `https://` base URL & secure cookies | Set `APP_URL=https://...` and `SESSION_SECURE_COOKIE=true`. |
 | **09. Reverse Proxy** | Trusted Proxy Configuration | `TRUSTED_PROXIES` restricted | Configure reverse proxy IP/CIDR in `TRUSTED_PROXIES`. |
 | **10. WebSockets** | Reverb Daemon & Allowed Origins | Daemon reachable, origins scoped | Start `reverb:start` via supervisor; configure origins. |
-| **11. Backups** | Durable Backup Freshness & RPO | Age < 120m, validated, restore tested | Run `buildflow:backup:create` and `buildflow:verify-recovery`. |
-| **12. Frontend** | Production Compiled Assets | `public/build/manifest.json` present | Run `npm run build` on deployment host. |
-| **13. Auth Security** | Production Demo Credential Guard | Demo accounts masked on login | Verify `APP_ENV=production` suppresses demo credentials. |
+| **11. Backup Freshness** | Durable Backup RPO SLA | Age < 60m (grace up to 75m) | Run `buildflow:backup:create --frequency=hourly`. |
+| **12. Backup Integrity** | Backup Cryptographic Integrity | Valid SHA-256 & AEAD Tag | Run `buildflow:backup:validate`. |
+| **13. Restore Test** | Isolated Restore Verification | Tested restore baseline exists | Run `buildflow:verify-recovery`. |
+| **14. Replication** | Secondary Off-Host Replication | Replicated replica exists & verified | Run `buildflow:backup:replicate`. |
+| **15. Frontend** | Production Compiled Assets | `public/build/manifest.json` present | Run `npm run build` on deployment host. |
+| **16. Auth Security** | Production Demo Credential Guard | Demo accounts masked on login | Verify `APP_ENV=production` suppresses demo credentials. |
 
-### 5. Production Release Runbook
+---
+
+## 16. Production Release & Rollback Procedures
 
 Follow these sequential steps during a production release:
 
-1. **Step 1: Create a Pre-Release Durable Backup**
+### 1. Production Release Step-by-Step Runbook
+1. **Step 1: Create a Pre-Release Durable Backup & Replicate**
    ```bash
-   php artisan buildflow:backup:create --frequency=daily
+   php artisan buildflow:backup:create --frequency=daily --encrypt
    php artisan buildflow:verify-recovery
+   php artisan buildflow:backup:replicate
    ```
 2. **Step 2: Enter Maintenance Mode**
    ```bash
@@ -762,7 +933,7 @@ Follow these sequential steps during a production release:
    php artisan up
    ```
 
-### 6. Production Rollback Plan
+### 2. Production Rollback Plan
 
 If a release fails post-deployment preflight or exhibits critical runtime faults:
 
@@ -778,24 +949,9 @@ If no database schema changes occurred:
 #### B. Database Rollback Strategy (Why NOT blind `migrate:rollback`)
 In a live ERP with continuous business activity (worker muster rolls, purchase requests, client bills, journal entries), running `php artisan migrate:rollback` can delete live tables or columns containing newly posted business records.
 - **Additive Migrations**: Because migrations are strictly additive, newly deployed code should be written to be backward-compatible with the previous schema version.
-- **Full Disaster Restoration**: If catastrophic database corruption occurs, perform a clean restore from the pre-release durable backup:
-  ```bash
-  # 1. Take application offline
-  php artisan down
-  
-  # 2. Extract database dump from durable backup
-  BACKUP_DIR="storage/app/backups/<backup-id>"
-  
-  # 3. Restore MySQL database
-  mysql -u <user> -p<pass> <db_name> < "$BACKUP_DIR/database.sql"
-  
-  # 4. Restore private storage files if necessary
-  tar -xzf "$BACKUP_DIR/storage.tar.gz" -C storage/app/private/
-  
-  # 5. Clear application caches and restart
-  php artisan cache:clear
-  php artisan up
-  ```
+- **Full Disaster Restoration**: If catastrophic database corruption occurs, perform a clean restore from the pre-release durable backup using the Disaster Restoration Runbook detailed in Section 14.3.
+
+
 
 
 
