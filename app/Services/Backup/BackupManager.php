@@ -26,12 +26,36 @@ class BackupManager
     }
 
     /**
+     * Get the active backup encryption key. Requires dedicated BACKUP_ENCRYPTION_KEY in production.
+     */
+    public function getEncryptionKey(): string
+    {
+        $key = (string) config('backup.encryption.key');
+        if (empty($key)) {
+            if (app()->isProduction()) {
+                throw new \RuntimeException(
+                    "Production backup policy violation: Dedicated BACKUP_ENCRYPTION_KEY is required in production and cannot fall back to APP_KEY."
+                );
+            }
+            $key = (string) config('app.key');
+        }
+        return $key;
+    }
+
+    /**
      * Create an atomic, durable backup of the database and private storage.
      */
     public function createBackup(string $frequency = 'hourly', ?bool $encrypt = null): array
     {
-        $encrypt = $encrypt ?? (bool) config('backup.encryption.enabled', false);
-        $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
+        if ($encrypt === null) {
+            $encrypt = app()->isProduction() ? true : (bool) config('backup.encryption.enabled', false);
+        }
+
+        if (app()->isProduction() && ! $encrypt) {
+            throw new \RuntimeException("Production backup policy violation: Backups in production must be encrypted.");
+        }
+
+        $encryptionKey = $this->getEncryptionKey();
 
         File::ensureDirectoryExists($this->basePath, 0700);
         @chmod($this->basePath, 0700);
@@ -216,7 +240,7 @@ class BackupManager
         }
 
         $errors = [];
-        $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
+        $encryptionKey = $this->getEncryptionKey();
         $isEncrypted = (bool) ($manifest['encryption']['enabled'] ?? false);
 
         // 1. Verify Database Dump File
@@ -540,12 +564,27 @@ class BackupManager
 
     /**
      * Encrypt a file using AEAD AES-256-GCM authenticated encryption.
+     *
+     * Known memory limitation: Uses single-pass OpenSSL AES-256-GCM. Backups exceeding
+     * available memory_limit (configured default: 512MB) must be partitioned or streamed.
      */
     public function encryptFile(string $sourceFile, string $destFile, string $key, string $backupId = '', string $fileName = ''): void
     {
-        $binaryKey = hash('sha256', $key, true);
-        $iv = openssl_random_pseudo_bytes(12); // Standard 12-byte nonce for GCM
+        if (empty($backupId) || empty($fileName)) {
+            throw new \InvalidArgumentException("Backup ID and filename are required for AEAD context binding.");
+        }
+
+        if (! file_exists($sourceFile)) {
+            throw new \RuntimeException("Source file for backup encryption does not exist: {$sourceFile}");
+        }
+
         $plaintext = file_get_contents($sourceFile);
+        if ($plaintext === false) {
+            throw new \RuntimeException("Unable to read plaintext file for encryption: {$sourceFile}");
+        }
+
+        $binaryKey = hash('sha256', $key, true);
+        $iv = random_bytes(12); // Cryptographically secure 12-byte nonce for GCM
         $tag = '';
         $aad = "BuildFlow-AEAD-v2|{$backupId}|{$fileName}";
 
@@ -559,71 +598,110 @@ class BackupManager
         // 'BFENC' (5 bytes) + Version 0x02 (1 byte) + Cipher 0x01 (1 byte) + IV len 0x0C (1 byte) + Tag len 0x10 (1 byte) = 9 bytes header
         // Followed by 12 bytes IV + 16 bytes Tag + Ciphertext
         $header = "BFENC\x02\x01\x0C\x10" . $iv . $tag;
-        file_put_contents($destFile, $header . $ciphertext);
+
+        $destTemp = "{$destFile}.tmp_" . bin2hex(random_bytes(6));
+        if (file_put_contents($destTemp, $header . $ciphertext) === false) {
+            throw new \RuntimeException("Failed writing encrypted payload to temporary file: {$destTemp}");
+        }
+        if (! rename($destTemp, $destFile)) {
+            @unlink($destTemp);
+            throw new \RuntimeException("Failed renaming temporary encrypted file to {$destFile}");
+        }
     }
 
     /**
      * Decrypt an encrypted file using AEAD AES-256-GCM, with legacy AES-256-CBC backward compatibility.
+     *
+     * Known memory limitation: Loads ciphertext into memory for tag verification before writing verified output.
      */
     public function decryptFile(string $sourceFile, string $destFile, string $key, ?string $backupId = null, ?string $fileName = null): void
     {
+        if (! file_exists($sourceFile)) {
+            throw new \RuntimeException("Encrypted backup source file not found: {$sourceFile}");
+        }
+
         $data = file_get_contents($sourceFile);
+        if ($data === false || $data === '') {
+            throw new \RuntimeException("Encrypted backup payload is empty or unreadable: {$sourceFile}");
+        }
+
         $binaryKey = hash('sha256', $key, true);
 
         // 1. Detect Version 2 AEAD Envelope ('BFENC\x02')
         if (str_starts_with($data, "BFENC\x02")) {
             if (strlen($data) < 37) { // 9 bytes header + 12 IV + 16 Tag = 37 min
-                throw new \RuntimeException("Encrypted backup payload is truncated or corrupted.");
+                throw new \RuntimeException("Encrypted backup payload is truncated or corrupted (length < 37 bytes).");
             }
 
-            $ivLen = ord($data[7]); // 12
-            $tagLen = ord($data[8]); // 16
-            $iv = substr($data, 9, $ivLen);
-            $tag = substr($data, 9 + $ivLen, $tagLen);
-            $ciphertext = substr($data, 9 + $ivLen + $tagLen);
+            if (substr($data, 0, 5) !== 'BFENC') {
+                throw new \RuntimeException("Invalid backup encryption magic header.");
+            }
+
+            $version = ord($data[5]);
+            if ($version !== 2) {
+                throw new \RuntimeException("Unsupported envelope format version: {$version}");
+            }
+
+            $cipherId = ord($data[6]);
+            if ($cipherId !== 1) { // 0x01 = AES-256-GCM
+                throw new \RuntimeException("Unsupported cipher identifier in envelope: 0x" . dechex($cipherId));
+            }
+
+            $ivLen = ord($data[7]);
+            if ($ivLen !== 12) {
+                throw new \RuntimeException("Invalid AEAD IV length in envelope: {$ivLen} bytes (expected 12).");
+            }
+
+            $tagLen = ord($data[8]);
+            if ($tagLen !== 16) {
+                throw new \RuntimeException("Invalid AEAD tag length in envelope: {$tagLen} bytes (expected 16).");
+            }
+
+            $iv = substr($data, 9, 12);
+            $tag = substr($data, 21, 16);
+            $ciphertext = substr($data, 37);
 
             // Infer backupId and fileName from source file path if not explicitly provided
-            $inferredBackupId = $backupId;
-            $inferredFileName = $fileName;
-            if ($inferredBackupId === null) {
+            if ($backupId === null) {
                 $parent = basename(dirname($sourceFile));
                 if (str_starts_with($parent, 'backup_')) {
-                    $inferredBackupId = $parent;
+                    $backupId = $parent;
                 }
             }
-            if ($inferredFileName === null) {
+            if ($fileName === null) {
                 $base = basename($sourceFile);
-                $inferredFileName = str_ends_with($base, '.enc') ? substr($base, 0, -4) : $base;
+                $fileName = str_ends_with($base, '.enc') ? substr($base, 0, -4) : $base;
             }
 
-            // Verify with AAD contextual binding candidates
-            $aadCandidates = [];
-            if ($inferredBackupId !== null || $inferredFileName !== null) {
-                $aadCandidates[] = "BuildFlow-AEAD-v2|" . ($inferredBackupId ?? '') . "|" . ($inferredFileName ?? '');
+            if (empty($backupId) || empty($fileName)) {
+                throw new \RuntimeException("AEAD context binding failure: Backup ID and filename are required to verify AAD.");
             }
-            $aadCandidates[] = "BuildFlow-AEAD-v2||";
-            $aadCandidates[] = "";
 
-            $plaintext = false;
-            foreach ($aadCandidates as $candidateAad) {
-                $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $candidateAad);
-                if ($plaintext !== false) {
-                    break;
-                }
-            }
+            // Strict context binding: exact AAD required without permissive fallback
+            $expectedAad = "BuildFlow-AEAD-v2|{$backupId}|{$fileName}";
+
+            $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $expectedAad);
 
             if ($plaintext === false) {
-                throw new \RuntimeException("AEAD decryption / authentication failed: Invalid authentication tag, altered ciphertext, or wrong key.");
+                throw new \RuntimeException("AEAD decryption / authentication failed: Invalid authentication tag, altered ciphertext, mismatched context (AAD), or wrong key.");
             }
 
-            file_put_contents($destFile, $plaintext);
+            // Atomic write to destination: write to .tmp then rename upon verified authentication
+            $destTemp = "{$destFile}.tmp_" . bin2hex(random_bytes(6));
+            if (file_put_contents($destTemp, $plaintext) === false) {
+                throw new \RuntimeException("Failed writing decrypted payload to temporary file: {$destTemp}");
+            }
+            if (! rename($destTemp, $destFile)) {
+                @unlink($destTemp);
+                throw new \RuntimeException("Failed renaming verified decrypted file to {$destFile}");
+            }
             return;
         }
 
         // 2. Legacy Version 1 (AES-256-CBC) Compatibility
         if (config('backup.encryption.allow_legacy_cbc_decrypt', true)) {
             if (strlen($data) < 16) {
-                throw new \RuntimeException('Legacy encrypted backup payload too short.');
+                throw new \RuntimeException('Legacy encrypted backup payload too short (less than 16 bytes).');
             }
 
             $iv = substr($data, 0, 16);
@@ -635,7 +713,16 @@ class BackupManager
             }
 
             Log::warning("Decrypted legacy AES-256-CBC backup file: {$sourceFile}. Consider upgrading to AEAD AES-256-GCM.");
-            file_put_contents($destFile, $plaintext);
+
+            // Atomic write
+            $destTemp = "{$destFile}.tmp_" . bin2hex(random_bytes(6));
+            if (file_put_contents($destTemp, $plaintext) === false) {
+                throw new \RuntimeException("Failed writing legacy decrypted payload to temporary file: {$destTemp}");
+            }
+            if (! rename($destTemp, $destFile)) {
+                @unlink($destTemp);
+                throw new \RuntimeException("Failed renaming legacy decrypted file to {$destFile}");
+            }
             return;
         }
 

@@ -209,7 +209,27 @@ class ReleasePreflightCommand extends Command
             $hasFailures = true;
         }
 
-        // 12. Isolated Restore Verification
+        // 12. Backup Encryption & Key Enforcement
+        $hasDedicatedKey = ! empty(config('backup.encryption.key'));
+        $isEncrypted = (bool) ($latestBackup['encryption']['enabled'] ?? false);
+        $cipher = $latestBackup['encryption']['cipher'] ?? 'unknown';
+
+        if ($isEncrypted && $hasDedicatedKey) {
+            $checks[] = ['Disaster Recovery', 'Backup Encryption & Key Configuration', 'PASS', "Encrypted with {$cipher} (AEAD v2) using dedicated BACKUP_ENCRYPTION_KEY."];
+        } elseif ($strict) {
+            if (! $isEncrypted) {
+                $checks[] = ['Disaster Recovery', 'Backup Encryption & Key Configuration', 'FAIL', "Latest backup is UNENCRYPTED. Production mandates AEAD AES-256-GCM encryption."];
+            } else {
+                $checks[] = ['Disaster Recovery', 'Backup Encryption & Key Configuration', 'FAIL', "BACKUP_ENCRYPTION_KEY is unconfigured or falling back to APP_KEY in production."];
+            }
+            $hasFailures = true;
+        } else {
+            $msg = ! $isEncrypted ? "Latest backup is unencrypted. Enable BACKUP_ENCRYPT in production." : "Dedicated BACKUP_ENCRYPTION_KEY recommended for production.";
+            $checks[] = ['Disaster Recovery', 'Backup Encryption & Key Configuration', 'WARNING', $msg];
+            $hasWarnings = true;
+        }
+
+        // 13. Isolated Restore Verification
         $latestTested = $backupManager->getLatestRestoreTestedBackup();
         if ($latestTested) {
             $checks[] = ['Disaster Recovery', 'Isolated Disaster Recovery Restore Test', 'PASS', "Verified baseline: [{$latestTested['backup_id']}] passed isolated restore test (protected: " . (! empty($latestTested['is_protected']) ? 'YES' : 'NO') . ")."];
@@ -221,19 +241,28 @@ class ReleasePreflightCommand extends Command
             $hasWarnings = true;
         }
 
-        // 13. Secondary Off-Host Backup Replication
+        // 14. Secondary Off-Host Backup Replication
         $repStatus = $replicator->getReplicationStatus();
+        $isOffHost = (bool) config('backup.replication.is_off_host', false);
         if ($repStatus['status'] === 'active' && $repStatus['total_replicas'] > 0) {
-            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'PASS', "Replication verified: {$repStatus['total_replicas']} secondary replicas ({$repStatus['latest_replicated_id']})."];
+            if ($isOffHost) {
+                $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'PASS', "Off-host replication verified: {$repStatus['total_replicas']} secondary replicas ({$repStatus['latest_replicated_id']})."];
+            } elseif ($strict) {
+                $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'FAIL', "Replicas exist locally ({$repStatus['total_replicas']}), but off-host/remote boundary is unverified. Single-host storage violates disaster recovery requirements."];
+                $hasFailures = true;
+            } else {
+                $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'WARNING', "Local secondary copy verified ({$repStatus['total_replicas']} replicas); off-host remote cloud storage unverified."];
+                $hasWarnings = true;
+            }
         } elseif ($strict) {
-            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'FAIL', "Off-host replication not configured or no replicas exist. Required for production resilience."];
+            $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'FAIL', "Off-host replication is unconfigured. Required for production resilience."];
             $hasFailures = true;
         } else {
             $checks[] = ['Disaster Recovery', 'Secondary Off-Host Replication', 'WARNING', "Secondary replication not yet configured on this host. Run [buildflow:backup:replicate]."];
             $hasWarnings = true;
         }
 
-        // 14. Frontend Production Asset Compilation
+        // 15. Frontend Production Asset Compilation
         $manifestPath = public_path('build/manifest.json');
         if (file_exists($manifestPath) && filesize($manifestPath) > 0) {
             $checks[] = ['Frontend', 'Vite Production Asset Compilation', 'PASS', "public/build/manifest.json verified. Production bundle ready."];
@@ -242,25 +271,44 @@ class ReleasePreflightCommand extends Command
             $hasFailures = true;
         }
 
-        // 15. Default Demo Accounts
-        $defaultUsersCount = User::whereIn('email', [
+        // 16. Default Demo Accounts
+        $knownDemoEmails = [
             'admin@buildflow.local',
             'pm@buildflow.local',
             'site@buildflow.local',
             'accounts@buildflow.local',
-        ])->count();
+            'hr@buildflow.local',
+            'procurement@buildflow.local',
+            'storekeeper@buildflow.local',
+            'karan@buildflow.local',
+        ];
+        $existingDemoUsers = User::whereIn('email', $knownDemoEmails)->pluck('email')->all();
+        $defaultUsersCount = count($existingDemoUsers);
 
         if ($defaultUsersCount === 0) {
             $checks[] = ['Access Control', 'Demo User Accounts & Credentials', 'PASS', "Zero default demo accounts detected."];
         } elseif ($strict) {
-            $checks[] = ['Access Control', 'Demo User Accounts & Credentials', 'FAIL', "{$defaultUsersCount} default demo accounts exist. Rotate passwords or remove before live production cutover."];
+            $emails = implode(', ', $existingDemoUsers);
+            $checks[] = ['Access Control', 'Demo User Accounts & Credentials', 'FAIL', "{$defaultUsersCount} default demo accounts exist: [{$emails}]. Operator action required: deactivate or replace credentials before live production cutover."];
             $hasFailures = true;
         } else {
             $checks[] = ['Access Control', 'Demo User Accounts & Credentials', 'WARNING', "{$defaultUsersCount} demo accounts active. Login pre-fill is masked in production; passwords must be rotated."];
             $hasWarnings = true;
         }
 
-        // 16. External Host Infrastructure Checks (Pending Verification)
+        // 17. Mail Delivery Infrastructure
+        $defaultMailer = config('mail.default');
+        if ($defaultMailer && ! in_array($defaultMailer, ['log', 'array'], true)) {
+            $checks[] = ['Email & Notifications', 'Mail Transport Configuration', 'PASS', "Configured mail transport: [{$defaultMailer}]."];
+        } elseif ($strict) {
+            $checks[] = ['Email & Notifications', 'Mail Transport Configuration', 'FAIL', "Mail transport is [{$defaultMailer}]. Production requires configured delivery (SMTP, SES, Postmark) for password reset emails."];
+            $hasFailures = true;
+        } else {
+            $checks[] = ['Email & Notifications', 'Mail Transport Configuration', 'WARNING', "Mail transport is [{$defaultMailer}]. Password resets will be logged locally. Configure SMTP/SES for production."];
+            $hasWarnings = true;
+        }
+
+        // 18. External Host Infrastructure Checks (Pending Verification)
         $checks[] = ['Infrastructure', 'Supervisor Process Manager (Workers)', 'NOT VERIFIED', "Host supervisorctl running queue:work and reverb:start must be confirmed on server."];
         $checks[] = ['Infrastructure', 'System Crontab (schedule:run)', 'NOT VERIFIED', "Host crontab entry (* * * * * php artisan schedule:run) must be configured on server."];
         $checks[] = ['Infrastructure', 'Off-Host Cloud Cold Storage Archive', 'NOT VERIFIED', "Long-term cold storage (S3 Glacier/Azure) for statutory 6-8 yr audit compliance required."];

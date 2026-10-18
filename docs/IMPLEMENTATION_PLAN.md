@@ -536,5 +536,43 @@ This document outlines the phased implementation plan, tech stack alignment, arc
   - Full PHPUnit Suite: **175 tests, 1081 assertions, 0 errors, 100% passing** (14.4s).
   - Frontend production build (`npm run build`): Vite v8.3.4 (242ms, 110.97 kB CSS / 352.54 kB JS).
 
+---
+
+### Phase 15: Critical Security Remediation, Backup Enforcement & CI Verification (Completed & Verified)
+- [x] Priority 1 — Password-Reset Broker Security:
+  - Integrated Laravel Password Broker (`Password::broker()->reset()`), ensuring token hashing, single-use token consumption, and 60-minute expiration.
+  - Implemented missing `resources/views/auth/reset-password.blade.php` with Stitch tokens.
+  - Enforced rate limiting (`throttle:3,1` on email dispatch, `throttle:5,1` on reset update).
+  - Preserved uniform generic responses preventing account existence enumeration.
+  - Recorded security `AuditLog` events without logging tokens or passwords.
+  - Added `tests/Feature/PasswordResetSecurityTest.php` (8 tests, 32 assertions) verifying valid, invalid, expired, reused, and wrong-email tokens.
+- [x] Priority 2 — Deny-by-Default Document Authorization:
+  - Denied access to orphaned documents (`documentable === null`) by default across `view`, `download`, `replace`, and `delete`.
+  - Removed permissive fallbacks; implemented explicit authorization rules for all 18 `MODEL_MAP` types (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `PayrollRecord`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`).
+  - Scoped Document Centre queries (`scopeVisibleTo()`) to exclude documents whose parent models the user cannot access, preventing metadata, filename, or KPI count leakage.
+  - Maintained immutability locks on posted journals, certified subcontractor bills, and settled loans.
+  - Added `tests/Feature/DocumentAuthorizationDenyByDefaultTest.php` (7 tests, 82 assertions) verifying cross-tenant isolation, role checks, and deny-by-default behavior.
+- [x] Priority 3 — Secret Sanitization & Demo Account Hygiene:
+  - Removed literal `REVERB_APP_SECRET` and demo password table from `README.md`.
+  - Audited tracked files for credentials and documented Reverb rotation requirements.
+  - Added fail-closed guard to `DatabaseSeeder.php` throwing `\RuntimeException` in production.
+  - Enumerated all 8 demo accounts in `buildflow:preflight`. In strict mode, preflight fails and reports accounts for operator deactivation without destructive auto-deletion.
+- [x] Priority 4 — Encrypted Production Backups & Strict AEAD Context Binding:
+  - Enforced dedicated `BACKUP_ENCRYPTION_KEY` in production; removed silent fallback to `APP_KEY`.
+  - Enforced exact AAD context binding (`BuildFlow-AEAD-v2|{backup_id}|{filename}`) with zero empty-AAD fallbacks.
+  - Validated envelope header magic (`BFENC`), version (2), cipher (1), IV length (12), and tag length (16) with `random_bytes(12)` nonces.
+  - Implemented atomic `.tmp` writes preventing partial unauthenticated file recovery.
+  - Preserved legacy AES-256-CBC decryption compatibility.
+  - Documented single-pass memory limitations (512MB default limit).
+- [x] Priority 5 — Operational Readiness Reporting:
+  - Enforced unified 60m RPO target and 75m critical breach policy across config, `/health`, and preflight.
+  - Health check reports HTTP 503 in production if backup is unencrypted, key is missing, or RPO breached.
+  - Demarcated `LocalSecondaryReplicationProvider` as same-host (`is_off_host = false`, `off_host_status = unverified_same_host`). In strict mode, preflight fails if off-host remote boundary is unverified.
+  - Expanded preflight to **18 operational domains**.
+- [x] Priority 6 — CI Workflow & Full Regression Verification:
+  - Created `.github/workflows/ci.yml` running PHP 8.5, MySQL 8, Node 20, migrations, PHPUnit, and preflight audit.
+  - Full PHPUnit test suite: **204 passed, 1,226 assertions, 0 errors, 100% passing** (15.5s).
+  - Frontend production build (`npm run build`): Vite v8.3.4 (237ms, 111.00 kB CSS / 352.54 kB JS).
+
 
 

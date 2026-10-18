@@ -161,6 +161,7 @@ class HealthCheckController extends Controller
                 $isValid = ($latestBackup['validation_status'] ?? '') === 'valid';
                 $isTested = ($latestBackup['restore_test_status'] ?? '') === 'passed';
                 $isEncrypted = (bool) ($latestBackup['encryption']['enabled'] ?? false);
+                $hasValidKey = ! empty(config('backup.encryption.key'));
 
                 $backupCheckStatus = 'ok';
                 if ($rpoStatus === 'breached') {
@@ -175,13 +176,20 @@ class HealthCheckController extends Controller
                     if ($isProduction) {
                         $isHealthy = false;
                     }
+                } elseif (! $isEncrypted && $isProduction) {
+                    $backupCheckStatus = 'unencrypted_in_production';
+                    $isHealthy = false;
+                } elseif (! $hasValidKey && $isProduction) {
+                    $backupCheckStatus = 'missing_encryption_key';
+                    $isHealthy = false;
                 }
 
                 $checks['durable_backups'] = [
                     'status' => $backupCheckStatus,
                     'latest_backup_id' => $latestBackup['backup_id'],
                     'age_minutes' => $backupAge,
-                    'rpo_target_minutes' => 60,
+                    'rpo_target_minutes' => (int) config('backup.rpo.target_minutes', 60),
+                    'rpo_critical_threshold_minutes' => (int) config('backup.rpo.critical_threshold_minutes', 75),
                     'rpo_status' => $rpoStatus,
                     'validation_status' => $latestBackup['validation_status'] ?? 'pending',
                     'restore_test_status' => $latestBackup['restore_test_status'] ?? 'untested',
@@ -203,7 +211,7 @@ class HealthCheckController extends Controller
                         'enabled' => $isEncrypted,
                         'cipher' => $isEncrypted ? ($latestBackup['encryption']['cipher'] ?? 'unknown') : 'none',
                         'authenticated' => (bool) ($latestBackup['encryption']['authenticated'] ?? false),
-                        'key_configured' => ! empty(config('backup.encryption.key')),
+                        'key_configured' => $hasValidKey,
                     ],
                 ];
             } else {
@@ -227,9 +235,15 @@ class HealthCheckController extends Controller
         try {
             $replicator = app(\App\Services\Backup\Replication\BackupReplicationInterface::class);
             $repStatus = $replicator->getReplicationStatus();
+            $driver = config('backup.replication.driver', 'local_secondary');
+            $isOffHost = (bool) config('backup.replication.is_off_host', false);
+
             $checks['secondary_replication'] = [
                 'status' => $repStatus['status'],
                 'enabled' => $repStatus['enabled'],
+                'driver' => $driver,
+                'is_off_host' => $isOffHost,
+                'off_host_status' => $isOffHost ? 'verified_remote' : 'unverified_same_host',
                 'latest_replicated_id' => $repStatus['latest_replicated_id'],
                 'latest_replicated_at' => $repStatus['latest_replicated_at'],
                 'total_replicas' => $repStatus['total_replicas'],

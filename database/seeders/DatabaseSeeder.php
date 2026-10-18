@@ -40,6 +40,12 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->environment('production')) {
+            throw new \RuntimeException(
+                'DatabaseSeeder contains development fixtures and demo accounts. It cannot be executed in production.'
+            );
+        }
+
         // 1. Create Companies
         $company = Company::create([
             'name' => 'NSD Earth Movers & Construction Ltd',

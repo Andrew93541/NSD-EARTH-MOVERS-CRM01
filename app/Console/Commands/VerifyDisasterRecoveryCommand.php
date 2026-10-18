@@ -79,7 +79,7 @@ class VerifyDisasterRecoveryCommand extends Command
             $backupDir = "{$manager->getBasePath()}/{$backupId}";
             $dumpFile = $manifest['database']['dump_file'];
             $isEncrypted = (bool) ($manifest['encryption']['enabled'] ?? false);
-            $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
+            $encryptionKey = $manager->getEncryptionKey();
 
             $sqlToRestore = "{$tempDir}/database_to_restore.sql";
             if ($isEncrypted) {

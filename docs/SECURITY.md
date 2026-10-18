@@ -250,6 +250,35 @@ BuildFlow treats all client-uploaded files, filenames, and headers as untrusted 
 - **Transfer Parity**: Computes SHA-256 digests at the destination and verifies byte-for-byte matching against primary source archives before issuing an atomic `replication_receipt.json`.
 - **Operator Handover**: Local directory replication is verified in development; off-host replication to dedicated cloud cold storage (e.g. AWS S3 Glacier, Azure Archive) must be configured by the host operator to satisfy statutory 6–8 year audit retention mandates.
 
+---
+
+## 9. Phase 15 Remediation, Cryptographic Binding & CI Verification
+
+### 1. Password Reset Broker Security
+- **Laravel Password Broker Integration**: Integrated Laravel's core password broker (`Password::broker()->reset()`), ensuring cryptographic token hashing, 60-minute expiration (`auth.passwords.users.expire`), and single-use token consumption upon password update.
+- **Form & Handler Authorization**: The reset password screen (`resources/views/auth/reset-password.blade.php`) requires corporate email, new password, confirmation, and the broker token. Arbitrary tokens or mismatched emails are strictly rejected.
+- **Information Leak Prevention**: The reset link submission endpoint returns a uniform generic confirmation message regardless of whether an account exists, preventing email enumeration.
+- **Audit Logging Without Credentials**: Successful resets dispatch `PasswordReset` events and record `AuditLog` rows (`action => 'password_reset'`) without storing passwords or tokens.
+- **Strict Rate Limiting**: Password reset requests are limited to 3 per minute (`throttle:3,1`) and updates to 5 per minute (`throttle:5,1`).
+
+### 2. Document Authorization Deny-by-Default Architecture
+- **Orphaned Document Access Denial**: Documents with null or deleted parent records (`documentable === null`) are denied by default across `view`, `download`, `replace`, and `delete`.
+- **Explicit Parent Record Authorization**: Removed permissive fallbacks for unknown parent models. All 18 business record models in `DocumentController::MODEL_MAP` (`Project`, `Site`, `DailySiteLog`, `PurchaseRequest`, `PurchaseOrder`, `GoodsReceipt`, `Employee`, `PayrollPeriod`, `PayrollRecord`, `ClientInvoice`, `ClientContract`, `RetentionReleaseClaim`, `Supplier`, `SubcontractorWorkOrder`, `MeasurementBookEntry`, `SubcontractorBill`, `FixedAsset`, `Loan`, `JournalEntry`) have explicit authorization rules.
+- **Zero Metadata Leakage**: `Document::scopeVisibleTo()` filters by `whereIn('documentable_type', $accessibleParentTypes)`. Unauthorized users cannot observe file metadata, KPI counts, search results, or filenames in the Document Centre.
+- **Financial Record Immutability**: Documents attached to posted journals, certified subcontractor bills, or settled loans cannot be deleted or replaced.
+
+### 3. Dedicated Backup Key & Strict AEAD Context Binding
+- **Dedicated Backup Key**: Removed silent fallback to `APP_KEY` in production. Production mandates a dedicated 256-bit `BACKUP_ENCRYPTION_KEY` and fails closed if missing.
+- **Strict Context Binding (Zero Empty-AAD Fallback)**: AES-256-GCM decryption mandates exact AAD context binding (`BuildFlow-AEAD-v2|{backup_id}|{filename}`). Ciphertext substitution between backups or files is cryptographically rejected.
+- **Envelope Validation**: Enforces envelope header magic (`BFENC`), version (`2`), cipher (`1`), IV length (`12`), and tag length (`16`). Nonces are generated via `random_bytes(12)`.
+- **Atomic Decryption Writes**: Decrypted plaintext is written to a temporary file (`.tmp_{rand}`) and renamed to destination only after tag verification succeeds, preventing partial or unauthenticated file recovery.
+- **Memory Limitation Notice**: OpenSSL AES-256-GCM operates in single-pass mode. Very large backups exceeding PHP `memory_limit` (configured default: 512MB) must be partitioned or streamed.
+
+### 4. Demo Account Hygiene & Seeder Production Guard
+- **Fail-Closed Seeder**: `DatabaseSeeder.php` throws a `\RuntimeException` immediately if invoked under `APP_ENV=production`.
+- **Preflight Strict Gate**: The release preflight audit enumerates all 8 demo accounts created in the seeder. In strict mode, preflight fails if any demo account is active, reporting them for operator deactivation without destructive auto-deletion.
+- **Secret Sanitization**: All literal passwords and the development `REVERB_APP_SECRET` were removed from `README.md` and tracked documentation.
+
 
 
 

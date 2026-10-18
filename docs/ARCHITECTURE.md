@@ -364,23 +364,37 @@ graph LR
 - **RTO SLA (15 Minutes)**: Tested automated restore executes in **3.8 seconds** for full database and file tree. Complete end-to-end recovery completes well within the 15-minute SLA.
 
 ### Release Preflight & Go-Live Gate (`buildflow:preflight`)
-Audits 16 critical operational domains before deployment:
-1. Environment & Debug Mode (`production` / `debug: false`)
-2. Application Key (`APP_KEY` present and valid length)
-3. Database & Pending Migrations (0 pending migrations)
-4. General Ledger Trial Balance Invariant (Debits == Credits, 0.00 difference)
-5. Private Document Storage Privacy (`serve => false` on local disk)
-6. Anti-Malware Fail-Closed Configuration (`SCANNER_FAIL_CLOSED=true`)
-7. ClamAV Daemon Availability (TCP 3310 / socket reachability)
-8. HTTPS & Secure Session Cookies (`APP_URL` https & `SESSION_SECURE_COOKIE`)
-9. Reverse Proxy Trust Configuration (`TRUSTED_PROXIES` restricted)
-10. Reverb WebSocket Daemon & Origins (`REVERB_ALLOWED_ORIGINS` non-wildcard)
-11. Durable Automated Backups (RPO age <= 60m target)
-12. Backup Cryptographic Integrity (SHA-256 digests and AEAD tags verified)
-13. Isolated Restore Verification (latest restore-tested baseline)
-14. Secondary Off-Host Replication (replica sync verified)
-15. Frontend Production Assets (`public/build/manifest.json` present)
-16. Demo Credentials Suppression (login page masks test accounts in production)
+Audits 18 critical operational domains before deployment:
+1. **Environment & Debug Mode**: Requires `APP_ENV=production` and `APP_DEBUG=false`.
+2. **Application Key**: Confirms valid 256-bit AES `APP_KEY`.
+3. **Database & Pending Migrations**: Verifies PDO connectivity and confirms 0 pending migrations.
+4. **General Ledger Trial Balance Invariant**: Proves GL equality ($\sum \text{Debits} == \sum \text{Credits}$, Diff: ₹0.00).
+5. **Private Document Storage Privacy**: Verifies `filesystems.disks.local.serve = false` to prevent web bypass.
+6. **Anti-Malware Scanner & Fail-Closed**: Verifies ClamAV daemon reachability and fail-closed blocking.
+7. **HTTPS & Secure Session Cookies**: Requires `APP_URL` with HTTPS and `SESSION_SECURE_COOKIE=true`.
+8. **Trusted Proxy Boundaries**: Requires explicit non-wildcard `TRUSTED_PROXIES`.
+9. **Reverb WebSocket Broadcast**: Audits Reverb daemon on port 8080 and verifies non-wildcard `REVERB_ALLOWED_ORIGINS`.
+10. **Durable Automated Backups**: Verifies latest snapshot age meets the 60-minute RPO target (75m critical breach limit).
+11. **Backup Cryptographic Integrity Validation**: Confirms SHA-256 digests and archive format verified clean.
+12. **Backup Encryption & Key Enforcement**: Verifies AEAD AES-256-GCM encryption and enforces dedicated `BACKUP_ENCRYPTION_KEY` in production.
+13. **Isolated Restore Verification**: Requires a verified, protected disaster recovery baseline snapshot.
+14. **Secondary Off-Host Replication**: Verifies replicas and enforces external remote cloud boundary (`is_off_host=true`).
+15. **Frontend Production Assets**: Verifies compiled `public/build/manifest.json`.
+16. **Demo User Accounts & Credentials**: Checks all 8 demo accounts created in seeder; in strict mode fails and reports them for operator deactivation.
+17. **Mail Delivery Infrastructure**: Verifies production mail transport (SMTP, SES, Postmark) for password reset delivery.
+18. **External Host Infrastructure**: Tracks external supervisorctl, crontab, and long-term cloud cold storage requirements.
+
+---
+
+## 8. Continuous Integration & Quality Gate (Phase 15)
+
+BuildFlow defines an automated GitHub Actions pipeline (`.github/workflows/ci.yml`) enforcing release readiness on every push and pull request:
+- **Environment Matrix**: Ubuntu latest, PHP 8.5 with complete extension set (BCMath, PDO MySQL, OpenSSL, FileInfo, MBString, cURL).
+- **Service Containers**: MySQL 8.0 container with healthy ping probe and UTF-8 multi-byte encoding.
+- **Node & Vite Pipeline**: Node.js 20 compiling frontend assets with production minification.
+- **Database Migrations**: Automatic test schema provisioning from fresh migrations.
+- **Full PHPUnit Suite**: 204 automated integration and unit tests (1,226 assertions) validating tenant isolation, cryptographic integrity, and financial accounting.
+- **Preflight Audit**: Automated execution of `buildflow:preflight` within CI to verify configuration conformity.
 
 
 

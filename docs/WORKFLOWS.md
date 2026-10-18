@@ -951,6 +951,71 @@ In a live ERP with continuous business activity (worker muster rolls, purchase r
 - **Additive Migrations**: Because migrations are strictly additive, newly deployed code should be written to be backward-compatible with the previous schema version.
 - **Full Disaster Restoration**: If catastrophic database corruption occurs, perform a clean restore from the pre-release durable backup using the Disaster Restoration Runbook detailed in Section 14.3.
 
+---
+
+## 15. Operational Security & Governance Workflows (Phase 15)
+
+### 1. Password Reset Workflow
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Operator
+    participant Auth as AuthController
+    participant Broker as PasswordBroker
+    participant Mail as MailTransport (SMTP/SES)
+    participant DB as MySQL DB
+    participant Audit as AuditLog
+
+    User->>Auth: POST /forgot-password (email)
+    Note over Auth: Rate limited: throttle:3,1
+    Auth->>Broker: sendResetLink(email)
+    Broker->>DB: Store hashed token in password_reset_tokens
+    Broker->>Mail: Dispatch notification with signed link
+    Auth-->>User: Generic confirmation (No email leakage)
+
+    User->>Auth: GET /reset-password/{token}?email=...
+    Auth-->>User: Render reset-password form
+
+    User->>Auth: POST /reset-password (token, email, password, confirmation)
+    Note over Auth: Rate limited: throttle:5,1
+    Auth->>Broker: reset(credentials, callback)
+    alt Token valid, unexpired, matching email
+        Broker->>DB: Update password hash & remember_token
+        Broker->>DB: Delete token from password_reset_tokens (single-use)
+        Auth->>Audit: Create audit log (user_id, action='password_reset')
+        Auth-->>User: Redirect to /login with success status
+    else Token invalid, expired, or wrong email
+        Auth-->>User: ValidationException: Invalid or expired reset token
+    end
+```
+
+### 2. Document Access Control & Parent Delegation
+```mermaid
+stateDiagram-v2
+    [*] --> Request: User requests document (view/download/delete)
+    Request --> TenantCheck: Belongs to active company?
+    TenantCheck --> Deny: No (403/404)
+    TenantCheck --> ParentCheck: Has parent record?
+    ParentCheck --> Deny: Orphaned document (403/404)
+    ParentCheck --> RoleCheck: Model recognized in MODEL_MAP?
+    RoleCheck --> Deny: Unknown model (Deny by default)
+    RoleCheck --> ConfidentialityCheck: User has parent permissions?
+    ConfidentialityCheck --> Deny: No (403 Forbidden)
+    ConfidentialityCheck --> ImmutabilityCheck: Is confidential & user not privileged?
+    ImmutabilityCheck --> Deny: Yes (403 Forbidden)
+    ImmutabilityCheck --> ActionDecision: Permitted for view/download
+
+    ActionDecision --> DeleteReplaceCheck: Action is Delete or Replace?
+    DeleteReplaceCheck --> ImmutableParentCheck: Check isParentImmutable()
+    ImmutableParentCheck --> Deny: Posted Journal / Certified Bill / Settled Loan (403)
+    ImmutableParentCheck --> Allow: Authorized
+```
+
+### 3. Off-Host Replication & Verification Boundary
+1. **Creation**: Hourly snapshot created and encrypted via AEAD AES-256-GCM with unique 12-byte nonce.
+2. **Local Secondary Replication**: Snapshot copied to secondary directory with SHA-256 integrity receipt.
+3. **Off-Host Boundary Verification**: In strict production mode, replication requires `config('backup.replication.is_off_host') === true` connecting to an external cloud or off-site bucket. Same-host local secondary storage is reported as `unverified_same_host` and triggers strict preflight failure to prevent false sense of recovery safety.
+
 
 
 
