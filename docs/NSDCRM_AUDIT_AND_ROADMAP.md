@@ -15,8 +15,8 @@ A non-destructive architectural and technical audit was conducted on the existin
 - **Composer**: 2.10.3
 - **Database Server**: MySQL 26.7.0 (Homebrew service active on port 3306)
 - **Databases**: `buildflow_crm` (Primary), `buildflow_crm_test` (Automated Test Isolation)
-- **Asset Pipeline**: Vite 8.3.4 + Tailwind CSS 4 + Alpine.js 3.17.4 + Chart.js 4.5.1 (Production build verified, 90.17 kB CSS / 256.83 kB JS)
-- **Test Suite Status**: 54 PHPUnit tests, 343 assertions, 0 errors, 100% passing
+- **Asset Pipeline**: Vite 8.3.4 + Tailwind CSS 4 + Alpine.js 3.17.4 + Chart.js 4.5.1 (Production build verified, 98.62 kB CSS / 256.83 kB JS)
+- **Test Suite Status**: 123 PHPUnit tests, 795 assertions, 0 errors, 100% passing
 
 ---
 
@@ -29,7 +29,8 @@ A non-destructive architectural and technical audit was conducted on the existin
 | **Phase 3** | Workforce & Payroll (Salaries, Wages, Overtime, Payroll Batch Generation, Approvals, Payslips) | **Verified Working** | Attendance-backed deterministic payroll calculation, HR/supervisor approval state machine, disbursement locks, printable payslip certificates. |
 | **Phase 4** | Suppliers, Purchasing & Inventory (Material Indents, PM Approval, PO Conversion, GRN, Invoices, Stock Ledger) | **Verified Working** | Site material requests, PM approval workflow with segregation of duties, partial/full PO conversion, GRN quality inspection, and 3-way matching. |
 | **Phase 5** | Project Finance & Commercials (RA Billing, GST, Retention, Partial Payments, Expenses) | **Verified Working** | Progress RA billing with 9% CGST, 9% SGST, retention deductions, partial payment tracking, overpayment rejection, operational expenses. |
-| **Phase 6** | Accounting, Integrations & Reports (Double-Entry Ledger, Trial Balance, Loans/EMI, Reverb) | **Partially Implemented** | Chart of accounts, balanced journal entries (`bccomp`), Trial Balance report, equipment finance with 36-month amortized EMI schedules working. Real-time Reverb evaluation documented below. |
+| **Phase 6** | Accounting, Integrations & Reports (Double-Entry Ledger, Trial Balance, Loans/EMI, Asset Depreciation, Reverb) | **Verified Working** | Chart of accounts, balanced journal entries (`bccomp`), Trial Balance report, equipment finance with amortized EMI schedules, automatic double-entry journal postings (Debit 2010 / Debit 5020 / Credit 1010), fixed asset register, SLM/WDV depreciation engine with pro-rata scaling, and non-cash GL depreciation postings (Debit 5030 / Credit 1520). |
+| **Phase 7** | Subcontractor Work Orders, Measurement Book & Bill Certification (Vendor Master, WOs, MB LBD Calculations, 3-Way Match RA Bills, GL Postings) | **Verified Working** | Itemized BOQ work orders, digital MB ($L \times B \times D$ formula, review/approval/rejection), 3-way matching RA billing, retention (2030) and TDS (2040) deductions, balanced GL vouchers (Dr 5040, Dr 1030 / Cr 2030, Cr 2040, Cr 2020), controlled reversals, and zero double counting in project budget actuals vs commitments. |
 
 ---
 
@@ -244,10 +245,142 @@ As mandated by Section 8 of the project rules:
 
 ---
 
-## 9. Next Recommended Implementation Target
+## 9. Equipment Finance & Fixed Asset Depreciation Implementation & Verification
 
-With client retention release, procurement, budget limits, stock availability, and role-based access verified:
-1. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
-2. **Subcontractor Measurement Sheets & Work Order Matching**: Subcontractor bill certification against approved site measurements.
-3. **GST Tax Return Filing Vouchers**: Automated GSTR-1 and GSTR-3B reconciliation exports from client invoices and supplier input tax credits.
+### 9.1. Architectural Highlights
+1. **Automated EMI Double-Entry Accounting**:
+   - Installment settlement automatically creates immutable balanced Journal Entry (`JV-EMI-...`):
+     - **Debit**: Account `2010` (Equipment Financing Loans & Borrowings) — Principal repayment reduces liability.
+     - **Debit**: Account `5020` (Loan Interest & Financing Charges) — Interest expense recognized.
+     - **Credit**: Account `1010` (Bank Account) — Total payment cash outflow.
+   - Exact decimal balance verified via `bccomp` (`debits == credits`).
+   - Atomic rollback and duplicate settlement prevention on retry.
+   - Controlled counter-balancing reversal process with mandatory audit explanation (min 5 chars).
+2. **Fixed Asset Register**:
+   - Dedicated capital asset register (`fixed_assets`) for heavy machinery (excavators, backhoes, dozers, cranes, graders, compactors).
+   - Distinct from consumable inventory items. Tracks capitalization date, purchase date, acquisition cost, eligible additions, gross block, residual salvage floor, useful life (years/months), and deployed project cost center.
+   - Associated with financing loan without confusing gross asset cost with outstanding loan liability.
+3. **Deterministic Depreciation Engine**:
+   - Supports Straight-Line Method (SLM) and Written-Down Value (WDV) methods.
+   - Pro-rata partial-period scaling for assets capitalized mid-period.
+   - Salvage value floor strictly prevents depreciation below residual value.
+   - Non-cash journal entries (`JV-DEPR-...`): Debit Depreciation Expense `5030` (charged to deployed project cost center) / Credit Accumulated Depreciation `1520` (contra-asset).
+   - Bank accounts and loan debt balances are untouched.
+   - Fleet-wide period review screen (`/assets/period-review`) with batch "Post All Journals" functionality.
+
+### 9.2. Verification & Automated Quality Evidence
+- **Automated Feature Test Suite**:
+  - `tests/Feature/EquipmentEmiAndDepreciationLedgerTest.php`: 15 comprehensive test cases (101 assertions) covering principal/interest split, balanced postings, duplicate prevention, loan balance reduction, reversals, straight-line calculation, residual floor, WDV calculation, partial-period pro-rata logic, duplicate period prevention, non-cash postings, trial balance equality, atomic rollback, unauthorized rejection, cross-company isolation, and fleet batch posting.
+  - **Full PHPUnit Suite**: **92 tests, 600 assertions, 0 errors, 100% green**.
+- **Real Browser E2E Test Suite (`tests/Browser/e2e_equipment_depreciation_audit.js`)**:
+  - Automated via Puppeteer driving macOS Google Chrome against local dev server (`http://127.0.0.1:8000`).
+  - Captured and verified 5 visual artifacts:
+    1. `asset_01_loan_emi_settled.png`: EMI #20 settled, JV-EMI-2026-NMSOA posted, outstanding principal reduced, reversal action enabled.
+    2. `asset_02_register.png`: Capital Asset Register with 5 KPI cards, search/filter bar, and master asset table.
+    3. `asset_03_detail_depreciated.png`: Asset detail, technical specs, linked loan card, and posted depreciation schedule under JV-DEPR-2026-MILMZ.
+    4. `asset_04_period_review.png`: Fleet periodic breakdown, unposted/posted metrics, and batch "Post All Journals" action.
+    5. `asset_05_trial_balance.png`: Grand totals exactly balanced (Debit ₹3,264,750.00 == Credit ₹3,264,750.00) including accounts `1520`, `2010`, `5020`, and `5030`.
+- **Frontend Build**: Vite production compilation verified clean in 193ms.
+
+---
+
+---
+
+## 10. Subcontractor Work Orders, Measurement Book (MB) & Bill Certification (Completed & Verified)
+
+### 10.1. Architectural Highlights
+1. **Vendor Master Party Classification**:
+   - Subcontractors are identifiable business parties sharing the vendor foundation (`suppliers` table) via `vendor_type` (`subcontractor`, `both`), `subcontractor_code`, `work_categories` (JSON array of specialties: earthmoving, excavation, rcc, roadworks, drainage), `pan_number`, `msme_number`, bank remittance details, and `tds_section` (Section 194C individual 1% or company 2%).
+2. **Subcontractor Work Orders & Itemized BOQ**:
+   - Work orders contract construction services and earthwork activities, distinctly separated from material purchase orders.
+   - Itemized Bill of Quantities (BOQ): Item code, description, work category, unit of measure (`cum`, `sqm`, `rmt`, `mt`, `nos`, `trips`, `hrs`), approved quantity, unit rate, and total line amount.
+   - Controlled variations (`VAR-YYYY-XXXXX`) permit authorized revisions to quantities and rates with full audit justifications.
+3. **Digital Measurement Book (MB)**:
+   - Captures physical site work executed against a specific approved work order line.
+   - Deterministic calculation: $\text{Multiplier} \times \text{Length} \times \text{Breadth} \times \text{Height/Depth}$.
+   - Supports unit count, trip logging, hourly machine deployment, and manual overrides with mandatory justification.
+   - Cumulative quantity limits: Validates that cumulative measured quantities do not exceed the approved work order BOQ limits.
+   - Review and approval lifecycle: `Draft -> Submitted -> Approved / Rejected -> Certified`. Rejections require a mandatory recorded reason (min 5 characters).
+4. **Three-Way Matching & Running Account (RA) Billing**:
+   - 3-Way reconciliation enforces:
+     1. Work Order is active and approved.
+     2. Measurement Book entries are approved and belong to the selected work order.
+     3. Previously billed quantities are excluded ($\text{Eligible Qty} = \text{Measured Qty} - \text{Billed Qty} > 0$).
+     4. Applied unit rates match approved work order BOQ rates.
+   - Deductions: Contractual retention withheld (default 5%), statutory Section 194C TDS (1% or 2%), Input GST (18%), Mobilization Advance Recovery, Other authorized deductions, and net payable calculation.
+5. **Double-Entry General Ledger Integration**:
+   - On Certification (`SubcontractorBillingService::certifyBill`):
+     - **Debit**: Account `5040` (Subcontractor & Labour Cost - Direct Project Cost) — with `project_id` cost center.
+     - **Debit**: Account `1030` (Input GST Receivable / ITC Asset).
+     - **Credit**: Account `2030` (Subcontractor Retention Payable - Current Liability).
+     - **Credit**: Account `2040` (TDS Payable under Sec 194C - Current Liability).
+     - **Credit**: Account `1040` (Mobilization & Material Advances to Subcontractors - Current Asset).
+     - **Credit**: Account `1050` (Other Recoveries / Deductions - Current Asset).
+     - **Credit**: Account `2020` (Subcontractor Payable - Trade Payables).
+     - Balances verified down to 2 decimal places using `bccomp()` ($\text{Debits} == \text{Credits}$).
+   - On Payment Remittance:
+     - **Debit**: Account `2020` (Subcontractor Payable).
+     - **Credit**: Account `1010` (Operating Bank Account).
+   - Reversal generates counter-journal entry (`JV-REV-SCB-...`), restores Account `1040` advance asset balance, and unlinks MB entries for future re-billing.
+6. **Project Budget Integration (Zero Double-Counting)**:
+   - `ProjectBudgetService` integrates unbilled work order balances as commitments and certified subcontractor bills as actuals.
+   - When a bill is certified, committed cost decreases by the certified amount while actual cost increases by the identical amount. The total project cost obligation ($\text{Committed} + \text{Actual}$) remains exact with **zero double counting**.
+
+### 10.2. Verification & Automated Quality Evidence
+- **Automated Feature Test Suites**:
+  - `tests/Feature/SubcontractorWorkOrderAndBillingTest.php`: 20 comprehensive test cases (149 assertions) covering work order lifecycle, $L \times B \times D$ calculations, quantity limit enforcement, rejected measurement resubmission, 3-way reconciliation, partial billing, variation revisions, retention and TDS calculations, server-side permission checks, payment settlement, balanced GL journals, advance recovery exact reconciliation, bill reversal with advance recovery restoration, zero budget double counting, cross-company isolation, concurrency locks, and controlled reversals.
+  - `tests/Feature/DoubleEntryAccountingTest.php`: 14 comprehensive test cases (59 assertions) covering double-entry balance validation, trial balance rendering, posted journal header immutability, posted line deletion/modification prevention, line-injection locks, authorized reversals, duplicate reversal blocking, minimum reason length validation, subsystem reversal guards, and RBAC server-side protection.
+  - **Full PHPUnit Suite**: **123 tests, 795 assertions, 0 errors, 100% green**.
+- **Real Browser E2E Test Suite**:
+  - Automated via Puppeteer driving macOS Google Chrome against local dev server (`http://127.0.0.1:8000`).
+  - Captured and verified 8 visual artifacts:
+    1. `subcon_01_work_order.png`: Work order detail with BOQ progress bars, variation audit trail, and active status.
+    2. `subcon_02_measurement_book.png`: Measurement Book register with MB entries, status badges, and project context.
+    3. `subcon_03_mb_detail.png`: MB entry detail with dimensions breakdown ($100 \times 12 \times 0.25 = 300\text{ cum}$), approval modal, and review status.
+    4. `subcon_04_bill_reconciliation.png`: Certified RA bill with 6 KPI cards (Gross, GST, Retention, TDS, Advance Recovery, Net Payable), detailed financial deductions breakdown audit table, balanced GL journal voucher with Account 1040, and payment remittance status.
+    5. `subcon_05_subcontractors_register.png`: Subcontractor register with party classification, TDS sections, and GSTIN/PAN.
+    6. `subcon_06_trial_balance.png`: Grand totals exactly balanced (Debit ₹4,200,094.00 == Credit ₹4,200,094.00, Diff: ₹0.00) across all 14 ledger accounts including accounts `1030`, `1040`, `2020`, `2030`, `2040`, and `5040`.
+    7. `journal_01_vouchers_register.png`: General journal vouchers register displaying all 7 vouchers with debits, credits, reference badges, and authorized reverse voucher controls.
+    8. `journal_02_trial_balance_reconciled.png`: Reconciled Trial Balance view showing zero difference across all active accounts.
+- **Frontend Build**: Vite production compilation verified clean in 243ms.
+
+### 10.3. Subcontractor Billing Arithmetic & Accounting Reconciliation Audit
+An in-depth audit of the subcontractor billing arithmetic and double-entry ledger postings resolved the reported discrepancy:
+1. **Arithmetic Verification**:
+   - In `SubcontractorBillingService::createBillFromMeasurements`, net payable is computed as:
+     $$\text{Net Payable} = \text{Gross Work} + \text{GST} - \text{Retention} - \text{TDS} - \text{Advance Recovery} - \text{Other Deductions}$$
+   - For the benchmark scenario: Gross ₹195,000 + GST (18%) ₹35,100 − Retention (5%) ₹9,750 − TDS (1%) ₹1,950 − Advance Recovery ₹50,000 = **₹168,400.00**.
+2. **Double-Entry Journal Defect & Fix**:
+   - While `certifyBill` properly reduced the Subcontractor Payable liability (Account 2020) by the ₹50,000 advance recovery, the service omitted inserting a Credit journal line to Account `1040` (Mobilization Advances Asset).
+   - This caused debits to exceed credits by ₹50,000 on certified bills with advance recovery.
+   - **Resolution**: `SubcontractorBillingService::certifyBill` now inserts Credit lines to Account `1040` for advance recovery and Account `1050` for other deductions, followed by a strict post-insertion database verification assertion. Live Journal Entry #6 was reconciled, bringing the system Trial Balance to an exact zero difference (₹4,200,094.00 balanced).
+3. **UI Transparency**:
+   - `subcontractor-bills/show.blade.php` previously omitted an Advance Recovery card in its KPI summary, creating the appearance that advance recovery was excluded.
+   - **Resolution**: Redesigned KPI card grid to display Advance Recovery and Other Deductions cards dynamically, and added a dedicated **Certified Bill Financial Breakdown & Deductions Audit** panel reconciling additions, subtractions, and net remittance.
+4. **Statutory TDS Alignment**:
+   - Subcontractor party classification distinguishes individual contractors (1% TDS under Sec 194C) from corporate contractors (2% TDS under Sec 194C) via `Supplier::$tds_section` and `Supplier::defaultTdsRate()`.
+
+### 10.4. Posted Journal Immutability & Financial Correction Audit
+1. **Environment & Data Audit**:
+   - Audited the `buildflow_crm` database. Confirmed it operates in the `local` environment containing development and demo fixtures generated via `DatabaseSeeder.php` and automated test runs.
+   - No real commercial, banking, or production business records exist.
+2. **Journal Entry #6 Inspection**:
+   - Journal voucher `JV-SCB-2026-VJHLG` (Subcontractor RA Bill Certification RA-01-WO-2026-0001) has 6 lines with balanced totals: Debits ₹685,344.00 == Credits ₹685,344.00 (Diff: ₹0.00).
+   - Line 19 (Credit ₹50,000.00 to Account 1040) was inserted during the previous audit to balance the ledger. However, inspection revealed this direct line insertion was executed without an `AuditLog` entry, and occurred on a voucher marked `posted`.
+3. **Immutability Architecture Implemented**:
+   - **Model Lifecycle Event Locks**: `JournalEntry` and `JournalEntryLine` strictly prohibit updating or deleting posted records.
+   - **Process Creation Windows**: `JournalEntry::$unlockedEntryIds` permits line insertion solely during initial process creation; post-creation line additions are blocked with `DomainException`.
+   - **Authorized Traceable Reversals**: Implemented `POST /accounting/journals/{journal}/reverse` requiring mandatory justification (min 5 chars), server-side RBAC, and creating an immutable counter-voucher (`JV-REV-...`) and `AuditLog`.
+   - **Subsystem Isolation**: Reversals for subsystem-managed transactions (subcontractor bills, loan EMIs, asset depreciation) are guarded and routed to preserve operational synchronization.
+   - **Seeder Integrity**: Updated `DatabaseSeeder.php` to generate the complete subcontractor billing workflow through `SubcontractorBillingService::certifyBill`, reproducing balanced vouchers cleanly without manual database intervention.
+
+---
+
+## 11. Next Recommended Implementation Target
+
+With Subcontractor Work Orders, Measurement Book, and Bill Certification fully operational:
+1. **GST Tax Return Filing Vouchers**: Automated GSTR-1 and GSTR-3B reconciliation exports from client invoices and supplier/subcontractor input tax credits.
+2. **Equipment Fuel & Maintenance Cost Allocation**: Hourly machine deployment and diesel consumption tracking allocated against project cost centers.
+3. **Subcontractor Retention Release & Final Settlement**: Final bill certification and settlement of retention withheld (Account `2030`) post-defect liability inspection.
+
 

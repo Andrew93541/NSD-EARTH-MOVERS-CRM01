@@ -6,12 +6,14 @@ use App\Models\Expense;
 use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
+use App\Models\SubcontractorBill;
+use App\Models\SubcontractorWorkOrder;
 use App\Models\SupplierInvoice;
 
 class ProjectBudgetService
 {
     /**
-     * Get actual posted expenditures for a project (expenses + approved supplier bills).
+     * Get actual posted expenditures for a project (expenses + approved supplier bills + certified subcontractor bills).
      */
     public static function getActualCosts(Project $project): float
     {
@@ -25,7 +27,12 @@ class ProjectBudgetService
             $q->where('project_id', $project->id);
         })->whereIn('status', ['approved', 'paid', 'partially_paid'])->sum('total_amount');
 
-        $totalActual = $expenses + $invoices;
+        // 3. Certified subcontractor running account bills (gross certified work executed)
+        $subcontractorBills = (float) SubcontractorBill::where('project_id', $project->id)
+            ->whereIn('status', ['certified', 'approved_for_payment', 'partially_paid', 'paid'])
+            ->sum('gross_work_value');
+
+        $totalActual = $expenses + $invoices + $subcontractorBills;
 
         // If manual base actual_cost was seeded/set and exceeds transactional records, use the higher
         if ((float) $project->actual_cost > $totalActual && $totalActual === 0.0) {
@@ -36,11 +43,15 @@ class ProjectBudgetService
     }
 
     /**
-     * Get committed expenditures (open unbilled Purchase Orders + approved unconverted material indents).
-     * Prevents double-counting by subtracting already-invoiced portions of POs.
+     * Get committed expenditures (open unbilled Purchase Orders + approved unconverted material indents + unbilled subcontractor work orders).
+     * Prevents double-counting by subtracting already-invoiced/certified portions.
      */
-    public static function getCommittedCosts(Project $project, ?int $excludePurchaseOrderId = null, ?int $excludePurchaseRequestId = null): float
-    {
+    public static function getCommittedCosts(
+        Project $project,
+        ?int $excludePurchaseOrderId = null,
+        ?int $excludePurchaseRequestId = null,
+        ?int $excludeWorkOrderId = null
+    ): float {
         // 1. Open Purchase Orders (total amount minus approved supplier invoices for each PO)
         $poQuery = PurchaseOrder::where('project_id', $project->id)
             ->whereNotIn('status', ['cancelled']);
@@ -82,7 +93,28 @@ class ProjectBudgetService
             }
         }
 
-        return round($unbilledPoCommitments + $unconvertedPrCommitments, 2);
+        // 3. Open Subcontractor Work Orders (effective contract value minus certified bills)
+        $woQuery = SubcontractorWorkOrder::where('project_id', $project->id)
+            ->whereIn('status', ['approved', 'active']);
+
+        if ($excludeWorkOrderId) {
+            $woQuery->where('id', '!=', $excludeWorkOrderId);
+        }
+
+        $openWOs = $woQuery->with('bills')->get();
+        $unbilledWoCommitments = 0.0;
+
+        foreach ($openWOs as $wo) {
+            $certifiedGross = (float) $wo->bills
+                ->whereIn('status', ['certified', 'approved_for_payment', 'partially_paid', 'paid'])
+                ->sum('gross_work_value');
+
+            $woEffectiveVal = (float) ($wo->revised_value > 0 ? $wo->revised_value : $wo->contract_value);
+            $unbilledRemaining = max(0.0, $woEffectiveVal - $certifiedGross);
+            $unbilledWoCommitments += $unbilledRemaining;
+        }
+
+        return round($unbilledPoCommitments + $unconvertedPrCommitments + $unbilledWoCommitments, 2);
     }
 
     /**

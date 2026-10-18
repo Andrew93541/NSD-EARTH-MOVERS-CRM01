@@ -43,7 +43,13 @@
                 $canProcurement = $u && ($u->hasPermission('*') || $u->hasPermission('procurement.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'procurement_officer', 'storekeeper']));
                 $canExpenses = $u && ($u->hasPermission('*') || $u->hasPermission('expenses.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant', 'project_manager']));
                 $canLoans = $u && ($u->hasPermission('*') || $u->hasPermission('loans.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+                $canAssets = $u && ($u->hasPermission('*') || $u->hasPermission('assets.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant', 'project_manager']));
                 $canAccounting = $u && ($u->hasPermission('*') || $u->hasPermission('accounting.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+
+                $canSubcontractors = $u && ($u->hasPermission('*') || $u->hasPermission('subcontractors.*') || $u->hasPermission('subcontractors.view') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'accountant', 'procurement_officer']));
+                $canWorkOrders = $u && ($u->hasPermission('*') || $u->hasPermission('work_orders.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'accountant', 'procurement_officer']));
+                $canMB = $u && ($u->hasPermission('*') || $u->hasPermission('measurement_book.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'accountant']));
+                $canSubconBills = $u && ($u->hasPermission('*') || $u->hasPermission('subcontractor_bills.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'accountant']));
             @endphp
 
             <!-- Navigation Links -->
@@ -100,6 +106,41 @@
                     </div>
                 </div>
 
+                @if($canSubcontractors || $canWorkOrders || $canMB || $canSubconBills)
+                <div>
+                    <span class="px-3 text-[11px] font-bold text-amber-600 uppercase tracking-wider block mb-2">SUBCONTRACT & MB</span>
+                    <div class="space-y-1">
+                        @if($canSubcontractors)
+                        <a href="{{ route('subcontractors.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('subcontractors.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                            <span>Subcontractors</span>
+                        </a>
+                        @endif
+
+                        @if($canWorkOrders)
+                        <a href="{{ route('work-orders.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('work-orders.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                            <span>Subcontract Work Orders</span>
+                        </a>
+                        @endif
+
+                        @if($canMB)
+                        <a href="{{ route('measurement-books.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('measurement-books.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            <span>Measurement Book (MB)</span>
+                        </a>
+                        @endif
+
+                        @if($canSubconBills)
+                        <a href="{{ route('subcontractor-bills.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('subcontractor-bills.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"/></svg>
+                            <span>Subcontractor RA Bills</span>
+                        </a>
+                        @endif
+                    </div>
+                </div>
+                @endif
+
                 @if($canBilling || $canPR || $canProcurement || $canExpenses || $canLoans || $canAccounting)
                 <div>
                     <span class="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">MANAGEMENT & FINANCE</span>
@@ -143,6 +184,13 @@
                         <a href="{{ route('loans.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('loans.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             <span>Equipment Loans & EMI</span>
+                        </a>
+                        @endif
+
+                        @if($canAssets)
+                        <a href="{{ route('assets.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('assets.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                            <span>Fixed Assets & Fleet</span>
                         </a>
                         @endif
 

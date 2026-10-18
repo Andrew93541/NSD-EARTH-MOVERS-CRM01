@@ -110,9 +110,11 @@ class LoanController extends Controller
     {
         $this->authorizeLoans();
 
-        $loan->load('emiSchedules');
+        $loan->load(['emiSchedules.journalEntry', 'fixedAsset', 'liabilityAccount', 'interestAccount']);
+        $companyId = session('current_company_id', $loan->company_id);
+        $bankAccounts = \App\Models\BankAccount::where('company_id', $companyId)->where('is_active', true)->get();
 
-        return view('loans.show', compact('loan'));
+        return view('loans.show', compact('loan', 'bankAccounts'));
     }
 
     public function recordEmiPayment(Request $request, LoanEmiSchedule $schedule): RedirectResponse
@@ -120,28 +122,36 @@ class LoanController extends Controller
         $this->authorizeLoans();
 
         $validated = $request->validate([
-            'payment_ref' => 'required|string|max:100',
-            'paid_date' => 'required|date',
+            'payment_ref' => 'nullable|string|max:100',
+            'paid_date' => 'nullable|date',
+            'bank_account_id' => 'nullable|exists:bank_accounts,id',
         ]);
 
-        return DB::transaction(function () use ($validated, $schedule) {
-            $lockedSchedule = LoanEmiSchedule::where('id', $schedule->id)->lockForUpdate()->firstOrFail();
+        try {
+            $user = Auth::user();
+            $journalEntry = \App\Services\EquipmentAccountingService::postEmiPayment($schedule, $validated, $user);
 
-            if ($lockedSchedule->status === 'paid') {
-                return back()->withErrors(['status' => "Installment #{$lockedSchedule->installment_number} has already been paid and cannot be double-processed."]);
-            }
+            return back()->with('success', "Installment #{$schedule->installment_number} marked as paid and Journal Entry {$journalEntry->entry_number} posted successfully.");
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage())->withErrors(['status' => $e->getMessage()]);
+        }
+    }
 
-            $lockedSchedule->update([
-                'status' => 'paid',
-                'paid_date' => $validated['paid_date'],
-                'payment_ref' => $validated['payment_ref'],
-            ]);
+    public function reverseEmiPayment(Request $request, LoanEmiSchedule $schedule): RedirectResponse
+    {
+        $this->authorizeLoans();
 
-            $loan = Loan::where('id', $lockedSchedule->loan_id)->lockForUpdate()->firstOrFail();
-            $newOutstanding = max(0, round((float) $loan->outstanding_principal - (float) $lockedSchedule->principal_component, 2));
-            $loan->update(['outstanding_principal' => $newOutstanding]);
+        $validated = $request->validate([
+            'reversal_reason' => 'required|string|min:5|max:255',
+        ]);
 
-            return back()->with('success', "Installment #{$lockedSchedule->installment_number} marked as paid.");
-        });
+        try {
+            $user = Auth::user();
+            $reversalJournal = \App\Services\EquipmentAccountingService::reverseEmiPayment($schedule, $validated['reversal_reason'], $user);
+
+            return back()->with('success', "Installment #{$schedule->installment_number} payment reversed. Counter-journal {$reversalJournal->entry_number} posted.");
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage())->withErrors(['reversal' => $e->getMessage()]);
+        }
     }
 }

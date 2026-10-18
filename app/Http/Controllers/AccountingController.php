@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\JournalEntryLine;
 use App\Models\Project;
+use App\Models\AuditLog;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,7 +46,7 @@ class AccountingController extends Controller
     {
         $this->authorizeAccounting();
 
-        $entries = JournalEntry::with(['lines.account', 'creator'])
+        $entries = JournalEntry::with(['lines.account', 'creator', 'reverser'])
             ->latest('entry_date')
             ->paginate(15);
 
@@ -118,9 +119,123 @@ class AccountingController extends Controller
                     'description' => $lineData['description'] ?? null,
                 ]);
             }
+
+            JournalEntry::lockAfterCreation($entry->id);
+
+            AuditLog::create([
+                'company_id' => $entry->company_id,
+                'user_id' => Auth::id(),
+                'action' => 'create_journal_entry',
+                'auditable_type' => JournalEntry::class,
+                'auditable_id' => $entry->id,
+                'new_values' => [
+                    'entry_number' => $entry->entry_number,
+                    'total_amount' => $entry->total_amount,
+                    'status' => 'posted',
+                ],
+            ]);
         });
 
         return redirect()->route('accounting.journals')->with('success', 'Balanced journal entry posted successfully.');
+    }
+
+    public function reverseJournal(Request $request, JournalEntry $journal): RedirectResponse
+    {
+        $this->authorizeAccounting();
+
+        $validated = $request->validate([
+            'reversal_reason' => 'required|string|min:5|max:1000',
+        ]);
+
+        if ($journal->status === 'reversed') {
+            return back()->withErrors(['reversal_reason' => "Journal entry {$journal->entry_number} is already reversed and cannot be reversed again."]);
+        }
+
+        if ($journal->status !== 'posted') {
+            return back()->withErrors(['reversal_reason' => "Only posted journal entries can be reversed."]);
+        }
+
+        // Subsystem operational integrity checks
+        if ($journal->reference_type === 'subcontractor_bills' && $journal->reference_id) {
+            return back()->withErrors(['reversal_reason' => "This journal entry originates from Subcontractor Bill #{$journal->reference_id}. Please use the Subcontractor Bill reversal workflow to properly synchronize work order quantities and measurement book entries."]);
+        }
+
+        if ($journal->reference_type === 'loan_emi_schedules' && $journal->reference_id) {
+            return back()->withErrors(['reversal_reason' => "This journal entry originates from Equipment Loan EMI Schedule #{$journal->reference_id}. Please use the Equipment Loan reversal workflow to synchronize loan amortizations."]);
+        }
+
+        if ($journal->reference_type === 'asset_depreciation_entries' && $journal->reference_id) {
+            return back()->withErrors(['reversal_reason' => "This journal entry originates from Fixed Asset Depreciation Entry #{$journal->reference_id}. Please use the Asset Depreciation reversal workflow."]);
+        }
+
+        $user = Auth::user();
+
+        $counterEntry = DB::transaction(function () use ($journal, $validated, $user) {
+            $lockedJournal = JournalEntry::where('id', $journal->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedJournal->status === 'reversed') {
+                throw new \DomainException("Journal entry {$lockedJournal->entry_number} is already reversed.");
+            }
+
+            // 1. Mark original journal entry as reversed
+            $lockedJournal->update([
+                'status' => 'reversed',
+                'reversed_by' => $user->id,
+                'reversed_at' => Carbon::now(),
+                'reversal_reason' => $validated['reversal_reason'],
+            ]);
+
+            // 2. Create counter-journal entry
+            $counterEntry = JournalEntry::create([
+                'company_id' => $lockedJournal->company_id,
+                'entry_number' => 'JV-REV-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                'entry_date' => Carbon::today(),
+                'reference_type' => 'journal_entries_reversal',
+                'reference_id' => $lockedJournal->id,
+                'narration' => "REVERSAL of {$lockedJournal->entry_number} - Reason: " . $validated['reversal_reason'],
+                'total_amount' => $lockedJournal->total_amount,
+                'status' => 'posted',
+                'created_by' => $user->id,
+            ]);
+
+            // 3. Insert inverted debit/credit lines
+            foreach ($lockedJournal->lines as $line) {
+                JournalEntryLine::create([
+                    'journal_entry_id' => $counterEntry->id,
+                    'account_id' => $line->account_id,
+                    'project_id' => $line->project_id,
+                    'debit' => $line->credit,
+                    'credit' => $line->debit,
+                    'description' => "Reversal of Line #{$line->id}: " . ($line->description ?? ''),
+                ]);
+            }
+
+            JournalEntry::lockAfterCreation($counterEntry->id);
+
+            // 4. Traceable Audit Log
+            AuditLog::create([
+                'company_id' => $lockedJournal->company_id,
+                'user_id' => $user->id,
+                'action' => 'reverse_journal_entry',
+                'auditable_type' => JournalEntry::class,
+                'auditable_id' => $lockedJournal->id,
+                'old_values' => [
+                    'entry_number' => $lockedJournal->entry_number,
+                    'status' => 'posted',
+                ],
+                'new_values' => [
+                    'entry_number' => $lockedJournal->entry_number,
+                    'status' => 'reversed',
+                    'reversal_entry_number' => $counterEntry->entry_number,
+                    'reversal_entry_id' => $counterEntry->id,
+                    'reversal_reason' => $validated['reversal_reason'],
+                ],
+            ]);
+
+            return $counterEntry;
+        });
+
+        return redirect()->route('accounting.journals')->with('success', "Journal entry {$journal->entry_number} reversed successfully with counter-entry {$counterEntry->entry_number}.");
     }
 
     public function trialBalance(): View

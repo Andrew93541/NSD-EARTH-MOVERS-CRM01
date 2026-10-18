@@ -100,7 +100,7 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id,
             'name' => 'Accountant',
             'slug' => 'accountant',
-            'permissions' => ['finance.*', 'billing.*', 'accounting.*', 'expenses.*', 'loans.*', 'procurement.invoices'],
+            'permissions' => ['finance.*', 'billing.*', 'accounting.*', 'expenses.*', 'loans.*', 'assets.*', 'retention.*', 'procurement.invoices'],
             'is_system' => true,
         ]);
 
@@ -760,6 +760,51 @@ class DatabaseSeeder extends Seeder
             'is_system' => true,
         ]);
 
+        $assetAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '1510',
+            'name' => 'Plant, Machinery & Heavy Earthmoving Equipment',
+            'account_type' => 'asset',
+            'sub_type' => 'fixed_asset',
+            'is_system' => true,
+        ]);
+
+        $accumDeprAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '1520',
+            'name' => 'Accumulated Depreciation - Plant & Machinery',
+            'account_type' => 'asset',
+            'sub_type' => 'fixed_asset',
+            'is_system' => true,
+        ]);
+
+        $loanLiabilityAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '2010',
+            'name' => 'Equipment Financing Loans & Borrowings',
+            'account_type' => 'liability',
+            'sub_type' => 'non_current_liability',
+            'is_system' => true,
+        ]);
+
+        $interestExpAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '5020',
+            'name' => 'Loan Interest & Financing Charges',
+            'account_type' => 'expense',
+            'sub_type' => 'finance_cost',
+            'is_system' => true,
+        ]);
+
+        $deprExpAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '5030',
+            'name' => 'Depreciation Expense - Heavy Equipment & Fleet',
+            'account_type' => 'expense',
+            'sub_type' => 'depreciation',
+            'is_system' => true,
+        ]);
+
         // Balanced journal entry for initial billing
         $je = JournalEntry::create([
             'company_id' => $company->id,
@@ -840,5 +885,206 @@ class DatabaseSeeder extends Seeder
             'is_active' => true,
             'description' => 'Sample Configuration: Capital materials and heavy bulk orders requiring Company Owner sign-off.',
         ]);
+
+        // 15. Capital Fixed Assets & Fleet Register
+        $asset1 = \App\Models\FixedAsset::create([
+            'company_id' => $company->id,
+            'asset_code' => 'AST-EX200-01',
+            'name' => 'Tata Hitachi EX200 LC Hydraulic Excavator',
+            'category' => 'excavator',
+            'serial_number' => 'THEX-2025-998210',
+            'purchase_date' => Carbon::now()->subMonths(10),
+            'capitalization_date' => Carbon::now()->subMonths(10),
+            'depreciation_start_date' => Carbon::now()->subMonths(10),
+            'acquisition_cost' => 6250000.00,
+            'eligible_capitalized_costs' => 250000.00,
+            'total_capitalized_cost' => 6500000.00,
+            'residual_value' => 500000.00,
+            'useful_life_years' => 8,
+            'useful_life_months' => 96,
+            'depreciation_method' => 'straight_line',
+            'depreciation_frequency' => 'monthly',
+            'accumulated_depreciation' => 0.00,
+            'current_book_value' => 6500000.00,
+            'status' => 'active',
+            'asset_account_id' => $assetAcc->id,
+            'accumulated_depr_account_id' => $accumDeprAcc->id,
+            'depr_expense_account_id' => $deprExpAcc->id,
+            'project_id' => $project1->id,
+            'loan_id' => $loan->id,
+            'location' => 'Riverside Residency Site Yard, Nagpur',
+            'created_by' => $admin->id,
+        ]);
+
+        $loan->update([
+            'fixed_asset_id' => $asset1->id,
+            'liability_account_id' => $loanLiabilityAcc->id,
+            'interest_account_id' => $interestExpAcc->id,
+        ]);
+
+        \App\Models\FixedAsset::create([
+            'company_id' => $company->id,
+            'asset_code' => 'AST-JCB-02',
+            'name' => 'JCB 3DX Eco Super Backhoe Loader',
+            'category' => 'backhoe_loader',
+            'serial_number' => 'JCB-3DX-2025-7781',
+            'purchase_date' => Carbon::now()->subMonths(6),
+            'capitalization_date' => Carbon::now()->subMonths(6),
+            'depreciation_start_date' => Carbon::now()->subMonths(6),
+            'acquisition_cost' => 3800000.00,
+            'eligible_capitalized_costs' => 0.00,
+            'total_capitalized_cost' => 3800000.00,
+            'residual_value' => 300000.00,
+            'useful_life_years' => 7,
+            'useful_life_months' => 84,
+            'depreciation_method' => 'straight_line',
+            'depreciation_frequency' => 'monthly',
+            'accumulated_depreciation' => 0.00,
+            'current_book_value' => 3800000.00,
+            'status' => 'active',
+            'asset_account_id' => $assetAcc->id,
+            'accumulated_depr_account_id' => $accumDeprAcc->id,
+            'depr_expense_account_id' => $deprExpAcc->id,
+            'project_id' => $project2->id,
+            'location' => 'Industrial Park Site Phase 2, Pune',
+            'created_by' => $admin->id,
+        ]);
+
+        \App\Models\FixedAsset::create([
+            'company_id' => $company->id,
+            'asset_code' => 'AST-CAT-03',
+            'name' => 'Caterpillar 320D2 GC Hydraulic Excavator',
+            'category' => 'excavator',
+            'serial_number' => 'CAT320-2026-1109',
+            'purchase_date' => Carbon::now()->subMonths(2),
+            'capitalization_date' => Carbon::now()->subMonths(2),
+            'depreciation_start_date' => Carbon::now()->subMonths(2),
+            'acquisition_cost' => 8200000.00,
+            'eligible_capitalized_costs' => 0.00,
+            'total_capitalized_cost' => 8200000.00,
+            'residual_value' => 700000.00,
+            'useful_life_years' => 10,
+            'useful_life_months' => 120,
+            'depreciation_method' => 'written_down_value',
+            'depreciation_rate_percent' => 15.00,
+            'depreciation_frequency' => 'monthly',
+            'accumulated_depreciation' => 0.00,
+            'current_book_value' => 8200000.00,
+            'status' => 'active',
+            'asset_account_id' => $assetAcc->id,
+            'accumulated_depr_account_id' => $accumDeprAcc->id,
+            'depr_expense_account_id' => $deprExpAcc->id,
+            'project_id' => $project1->id,
+            'location' => 'Riverside Residency Site Yard, Nagpur',
+            'created_by' => $admin->id,
+        ]);
+
+        // 16. Subcontractor Work Orders, Measurement Book, and Running Account Billing Demo Flow
+        $subcontractor = Supplier::create([
+            'company_id' => $company->id,
+            'name' => 'Apex Heavy Earthmovers Pvt Ltd',
+            'contact_person' => 'Rameshwar Patil',
+            'phone' => '+91 80 5544 3322',
+            'email' => 'contracts@apexearthmovers.in',
+            'vendor_type' => 'subcontractor',
+            'subcontractor_code' => 'SC-2026-001',
+            'work_categories' => ['earthmoving', 'excavation', 'roadworks'],
+            'gstin' => '29AABCA9988D1Z3',
+            'pan_number' => 'AABCA9988D',
+            'tds_section' => '194C_company_2%',
+            'bank_name' => 'HDFC Bank Ltd',
+            'bank_account_number' => '50200099887766',
+            'bank_ifsc_code' => 'HDFC0001234',
+            'bank_branch' => 'Peenya Industrial Area, Bengaluru',
+            'payment_terms' => '15_days',
+        ]);
+
+        $wo = \App\Services\SubcontractorBillingService::createWorkOrder([
+            'project_id' => $project1->id,
+            'subcontractor_id' => $subcontractor->id,
+            'title' => 'Bulk Earth Excavation, Site Levelling & Embankment Compaction',
+            'scope_of_work' => 'Mechanical excavation in all types of soil including rocky strata, loading into tippers, haulage up to 5 km disposal yard, and backfilling.',
+            'site_location' => 'Riverside Residency Site Phase 1, Bengaluru',
+            'commencement_date' => Carbon::now()->subDays(30),
+            'completion_due_date' => Carbon::now()->addDays(60),
+            'retention_percent' => 5.00,
+            'retention_dlp_months' => 12,
+            'items' => [
+                [
+                    'item_code' => 'BOQ-EARTH-01',
+                    'description' => 'Bulk excavation in ordinary soil using 20T excavator',
+                    'work_category' => 'excavation',
+                    'unit_of_measure' => 'cum',
+                    'approved_quantity' => 5000.00,
+                    'unit_rate' => 180.00,
+                ],
+                [
+                    'item_code' => 'BOQ-EARTH-02',
+                    'description' => 'Carting and disposal of excavated surplus soil with 5km lead',
+                    'work_category' => 'earthmoving',
+                    'unit_of_measure' => 'cum',
+                    'approved_quantity' => 3000.00,
+                    'unit_rate' => 240.00,
+                ],
+            ],
+        ], $admin);
+
+        \App\Services\SubcontractorBillingService::approveWorkOrder($wo, $admin);
+
+        $woItem1 = $wo->items()->where('item_code', 'BOQ-EARTH-01')->first();
+        $woItem2 = $wo->items()->where('item_code', 'BOQ-EARTH-02')->first();
+
+        // Site Supervisor logs Measurement Book entries
+        $mb1 = \App\Services\SubcontractorBillingService::recordMeasurement([
+            'work_order_item_id' => $woItem1->id,
+            'measurement_date' => Carbon::now()->subDays(15),
+            'location_chainage' => 'Grid A1 to D4 Basement Pit',
+            'work_description' => 'Excavation for basement foundation pit layer 1',
+            'measurement_formula' => 'l_b_d',
+            'length' => 100.00,
+            'breadth' => 20.00,
+            'depth_height' => 1.00,
+            'multiplier_units' => 1.00,
+        ], $siteUser);
+
+        $mb2 = \App\Services\SubcontractorBillingService::recordMeasurement([
+            'work_order_item_id' => $woItem2->id,
+            'measurement_date' => Carbon::now()->subDays(14),
+            'location_chainage' => 'Disposal Site Dumpyard Sector 4',
+            'work_description' => 'Soil carting via 16-cum tipper trucks (57 trips)',
+            'measurement_formula' => 'trips',
+            'multiplier_units' => 57.00,
+            'manual_quantity_override' => 920.00,
+            'manual_override_reason' => 'Weighbridge volumetric conversion for 57 tipper loads',
+        ], $siteUser);
+
+        // Project Manager approves measurements
+        \App\Services\SubcontractorBillingService::approveMeasurement($mb1, $pmUser);
+        \App\Services\SubcontractorBillingService::approveMeasurement($mb2, $pmUser);
+
+        // Subcontractor RA Bill with ₹50,000 Advance Recovery
+        $bill = \App\Services\SubcontractorBillingService::createBillFromMeasurements([
+            'subcontractor_work_order_id' => $wo->id,
+            'bill_period_start' => Carbon::now()->subDays(30),
+            'bill_period_end' => Carbon::now()->subDays(10),
+            'invoice_date' => Carbon::now()->subDays(5),
+            'subcontractor_invoice_ref' => 'APEX-RA-01',
+            'measurement_book_entry_ids' => [$mb1->id, $mb2->id],
+            'advance_recovery_amount' => 50000.00,
+            'other_deductions_amount' => 0.00,
+            'notes' => 'Certified RA Bill 1 with contract mobilization advance recovery ₹50,000',
+        ], $pmUser);
+
+        \App\Services\SubcontractorBillingService::certifyBill($bill, $admin);
+
+        // Partial payment remittance
+        \App\Services\SubcontractorBillingService::recordPayment($bill, [
+            'payment_date' => Carbon::now()->subDays(2),
+            'amount' => 250000.00,
+            'payment_mode' => 'bank_transfer',
+            'payment_reference' => 'RTGS-HDFC-882910',
+            'bank_account_id' => $bankAcc->id,
+            'notes' => 'Partial payment released against certified RA Bill 1',
+        ], $accountant);
     }
 }

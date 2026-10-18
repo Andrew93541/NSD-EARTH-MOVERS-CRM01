@@ -25,4 +25,14 @@ class LoanEmiSchedule extends Model
     {
         return $this->belongsTo(Loan::class);
     }
+
+    public function bankAccount(): BelongsTo
+    {
+        return $this->belongsTo(BankAccount::class);
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
 }

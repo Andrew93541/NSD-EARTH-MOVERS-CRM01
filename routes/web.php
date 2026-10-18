@@ -7,9 +7,11 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\FixedAssetController;
 use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\LoanController;
+use App\Http\Controllers\MeasurementBookController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProcurementApprovalPolicyController;
 use App\Http\Controllers\ProcurementController;
@@ -17,6 +19,9 @@ use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\PurchaseRequestController;
 use App\Http\Controllers\RetentionController;
 use App\Http\Controllers\SiteOperationController;
+use App\Http\Controllers\SubcontractorBillController;
+use App\Http\Controllers\SubcontractorController;
+use App\Http\Controllers\SubcontractorWorkOrderController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
 
@@ -159,6 +164,46 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/claims/{claim}/receipts', [RetentionController::class, 'recordReceipt'])->name('claims.receipts.store');
     });
 
+    // Subcontractors Master
+    Route::prefix('subcontractors')->name('subcontractors.')->group(function () {
+        Route::get('/', [SubcontractorController::class, 'index'])->name('index');
+        Route::get('/create', [SubcontractorController::class, 'create'])->name('create');
+        Route::post('/', [SubcontractorController::class, 'store'])->name('store');
+        Route::get('/{subcontractor}', [SubcontractorController::class, 'show'])->name('show');
+    });
+
+    // Subcontractor Work Orders & BOQ
+    Route::prefix('work-orders')->name('work-orders.')->group(function () {
+        Route::get('/', [SubcontractorWorkOrderController::class, 'index'])->name('index');
+        Route::get('/create', [SubcontractorWorkOrderController::class, 'create'])->name('create');
+        Route::post('/', [SubcontractorWorkOrderController::class, 'store'])->name('store');
+        Route::get('/{workOrder}', [SubcontractorWorkOrderController::class, 'show'])->name('show');
+        Route::post('/{workOrder}/approve', [SubcontractorWorkOrderController::class, 'approve'])->name('approve');
+        Route::post('/{workOrder}/variations', [SubcontractorWorkOrderController::class, 'storeVariation'])->name('variations.store');
+    });
+
+    // Digital Measurement Book (MB)
+    Route::prefix('measurement-books')->name('measurement-books.')->group(function () {
+        Route::get('/', [MeasurementBookController::class, 'index'])->name('index');
+        Route::get('/create', [MeasurementBookController::class, 'create'])->name('create');
+        Route::post('/', [MeasurementBookController::class, 'store'])->name('store');
+        Route::get('/{measurementBook}', [MeasurementBookController::class, 'show'])->name('show');
+        Route::post('/{measurementBook}/approve', [MeasurementBookController::class, 'approve'])->name('approve');
+        Route::post('/{measurementBook}/reject', [MeasurementBookController::class, 'reject'])->name('reject');
+        Route::post('/{measurementBook}/resubmit', [MeasurementBookController::class, 'resubmit'])->name('resubmit');
+    });
+
+    // Subcontractor RA Bills, Reconciliation & Certification
+    Route::prefix('subcontractor-bills')->name('subcontractor-bills.')->group(function () {
+        Route::get('/', [SubcontractorBillController::class, 'index'])->name('index');
+        Route::get('/create', [SubcontractorBillController::class, 'create'])->name('create');
+        Route::post('/', [SubcontractorBillController::class, 'store'])->name('store');
+        Route::get('/{subcontractorBill}', [SubcontractorBillController::class, 'show'])->name('show');
+        Route::post('/{subcontractorBill}/certify', [SubcontractorBillController::class, 'certify'])->name('certify');
+        Route::post('/{subcontractorBill}/payments', [SubcontractorBillController::class, 'recordPayment'])->name('payments.store');
+        Route::post('/{subcontractorBill}/reverse', [SubcontractorBillController::class, 'reverse'])->name('reverse');
+    });
+
     // Expenses & Loans
     Route::prefix('expenses')->name('expenses.')->group(function () {
         Route::get('/', [ExpenseController::class, 'index'])->name('index');
@@ -172,6 +217,20 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/', [LoanController::class, 'store'])->name('store');
         Route::get('/{loan}', [LoanController::class, 'show'])->name('show');
         Route::post('/emi/{schedule}/pay', [LoanController::class, 'recordEmiPayment'])->name('emi.pay');
+        Route::post('/emi/{schedule}/reverse', [LoanController::class, 'reverseEmiPayment'])->name('emi.reverse');
+    });
+
+    // Fixed Assets & Fleet Register
+    Route::prefix('assets')->name('assets.')->group(function () {
+        Route::get('/', [FixedAssetController::class, 'index'])->name('index');
+        Route::get('/create', [FixedAssetController::class, 'create'])->name('create');
+        Route::post('/', [FixedAssetController::class, 'store'])->name('store');
+        Route::get('/period-review', [FixedAssetController::class, 'periodReview'])->name('period-review');
+        Route::post('/period-review/batch-post', [FixedAssetController::class, 'postPeriodBatch'])->name('period-review.post');
+        Route::get('/{asset}', [FixedAssetController::class, 'show'])->name('show');
+        Route::post('/{asset}/depreciation/calculate', [FixedAssetController::class, 'calculateDepreciation'])->name('depreciation.calculate');
+        Route::post('/depreciation/{entry}/post', [FixedAssetController::class, 'postDepreciation'])->name('depreciation.post');
+        Route::post('/depreciation/{entry}/reverse', [FixedAssetController::class, 'reverseDepreciation'])->name('depreciation.reverse');
     });
 
     // Accounting & Reports
@@ -180,6 +239,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/journals', [AccountingController::class, 'journalEntries'])->name('journals');
         Route::get('/journals/create', [AccountingController::class, 'createJournal'])->name('journals.create');
         Route::post('/journals', [AccountingController::class, 'storeJournal'])->name('journals.store');
+        Route::post('/journals/{journal}/reverse', [AccountingController::class, 'reverseJournal'])->name('journals.reverse');
         Route::get('/trial-balance', [AccountingController::class, 'trialBalance'])->name('trial-balance');
     });
 

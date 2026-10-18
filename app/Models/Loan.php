@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Traits\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -26,5 +27,30 @@ class Loan extends Model
     public function emiSchedules(): HasMany
     {
         return $this->hasMany(LoanEmiSchedule::class)->orderBy('installment_number');
+    }
+
+    public function fixedAsset(): BelongsTo
+    {
+        return $this->belongsTo(FixedAsset::class);
+    }
+
+    public function liabilityAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'liability_account_id');
+    }
+
+    public function interestAccount(): BelongsTo
+    {
+        return $this->belongsTo(Account::class, 'interest_account_id');
+    }
+
+    public function totalPaidPrincipal(): float
+    {
+        return (float) $this->emiSchedules()->where('status', 'paid')->sum('principal_component');
+    }
+
+    public function totalPaidInterest(): float
+    {
+        return (float) $this->emiSchedules()->where('status', 'paid')->sum('interest_component');
     }
 }
