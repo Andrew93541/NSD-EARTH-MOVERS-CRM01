@@ -29,4 +29,9 @@ class PurchaseOrderItem extends Model
     {
         return $this->belongsTo(Material::class);
     }
+
+    public function purchaseRequestItem(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseRequestItem::class);
+    }
 }

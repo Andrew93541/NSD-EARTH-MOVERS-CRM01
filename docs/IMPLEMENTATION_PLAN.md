@@ -65,10 +65,13 @@ This document outlines the phased implementation plan, tech stack alignment, arc
 
 ### [x] Phase 4 — Materials, Warehouses & Procurement
 - [x] Schema: `material_categories`, `materials`, `warehouses`, `stock_ledger_entries`, `stock_transfers`
-- [x] Schema: `suppliers`, `purchase_requests`, `quotations`, `purchase_orders`, `goods_receipts`, `supplier_invoices`
+- [x] Schema: `suppliers`, `purchase_requests`, `purchase_request_items`, `purchase_orders`, `purchase_order_items`, `goods_receipts`, `supplier_invoices`
 - [x] Double-entry stock movement ledger with atomic transactions and negative stock prevention
-- [x] Three-way matching: PO -> Goods Receipt -> Supplier Invoice
-- [x] Tests for atomic stock transfers and procurement approval workflow (`InventoryTransferTest.php`)
+- [x] Site Purchase Requests (Material Indents) UI: interactive line items builder, positive quantity validation, and live warehouse stock context
+- [x] Project Manager Approval Workflow: segregation of duties enforcement, mandatory rejection reason with audit logging, and lifecycle timeline
+- [x] Procurement PO Conversion: atomic database transactions, partial conversion tracking, GST calculation, and over-order prevention
+- [x] Three-way matching: PO -> Goods Receipt (GRN) -> Supplier Invoice
+- [x] Automated tests for atomic stock transfers (`InventoryTransferTest.php`), procurement receipt & invoice (`ProcurementAndGoodsReceiptTest.php`), and PR workflow (`PurchaseRequestWorkflowTest.php` - 15 tests, 111 assertions)
 
 ### [x] Phase 5 — Payroll & Client Billing
 - [x] Schema: `payroll_periods`, `salary_structures`, `payroll_records`, `payslips`

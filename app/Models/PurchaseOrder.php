@@ -32,6 +32,11 @@ class PurchaseOrder extends Model
         return $this->belongsTo(Project::class);
     }
 
+    public function purchaseRequest(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseRequest::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(PurchaseOrderItem::class);

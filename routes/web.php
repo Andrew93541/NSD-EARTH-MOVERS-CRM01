@@ -13,6 +13,7 @@ use App\Http\Controllers\LoanController;
 use App\Http\Controllers\PayrollController;
 use App\Http\Controllers\ProcurementController;
 use App\Http\Controllers\ProjectController;
+use App\Http\Controllers\PurchaseRequestController;
 use App\Http\Controllers\SiteOperationController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -104,6 +105,22 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/orders/{order}/receive', [ProcurementController::class, 'storeGRN'])->name('receive.store');
         Route::post('/orders/{order}/invoice', [ProcurementController::class, 'storeSupplierInvoice'])->name('invoice.store');
         Route::get('/supplier-invoices', [ProcurementController::class, 'supplierInvoices'])->name('invoices');
+    });
+
+    // Site Purchase Requests (Material Indents) & PO Conversion
+    Route::prefix('purchase-requests')->name('purchase-requests.')->group(function () {
+        Route::get('/', [PurchaseRequestController::class, 'index'])->name('index');
+        Route::get('/create', [PurchaseRequestController::class, 'create'])->name('create');
+        Route::post('/', [PurchaseRequestController::class, 'store'])->name('store');
+        Route::get('/{request}', [PurchaseRequestController::class, 'show'])->name('show');
+        Route::get('/{request}/edit', [PurchaseRequestController::class, 'edit'])->name('edit');
+        Route::put('/{request}', [PurchaseRequestController::class, 'update'])->name('update');
+        Route::post('/{request}/submit', [PurchaseRequestController::class, 'submit'])->name('submit');
+        Route::post('/{request}/approve', [PurchaseRequestController::class, 'approve'])->name('approve');
+        Route::post('/{request}/reject', [PurchaseRequestController::class, 'reject'])->name('reject');
+        Route::post('/{request}/cancel', [PurchaseRequestController::class, 'cancel'])->name('cancel');
+        Route::get('/{request}/convert-po', [PurchaseRequestController::class, 'createPOConversion'])->name('convert');
+        Route::post('/{request}/convert-po', [PurchaseRequestController::class, 'storePOConversion'])->name('convert.store');
     });
 
     // Billing & Receivables

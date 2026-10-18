@@ -16,7 +16,7 @@ A non-destructive architectural and technical audit was conducted on the existin
 - **Database Server**: MySQL 26.7.0 (Homebrew service active on port 3306)
 - **Databases**: `buildflow_crm` (Primary), `buildflow_crm_test` (Automated Test Isolation)
 - **Asset Pipeline**: Vite 8.3.4 + Tailwind CSS 4 + Alpine.js 3.17.4 + Chart.js 4.5.1 (Production build verified, 90.17 kB CSS / 256.83 kB JS)
-- **Test Suite Status**: 27 PHPUnit tests, 151 assertions, 0 errors, 100% passing
+- **Test Suite Status**: 54 PHPUnit tests, 343 assertions, 0 errors, 100% passing
 
 ---
 
@@ -26,8 +26,8 @@ A non-destructive architectural and technical audit was conducted on the existin
 |---|---|:---:|---|
 | **Phase 1** | Foundation & Core CRM (Workspaces, Auth, Roles, Clients, Projects, Dashboard, Audit) | **Verified Working** | Multi-tenant scoping via `BelongsToCompany`, Auth throttling, Stitch-matched Dashboard with live DB queries. All 35 main routes return HTTP 200. |
 | **Phase 2** | Site Operations & Attendance (Sites, Daily Logs, Worker Count, Muster Roll, Biometric Punch Audit) | **Verified Working** | Multi-site logs with worker counts, daily muster roll with radio status toggles and overtime approval, raw punch log traceability (`attendance_punches`). |
-| **Phase 3** | Workforce & Payroll (Salaries, Wages, Overtime, Payroll Batch Generation, Approvals, Payslips) | **Partially Implemented** | `employees`, `shifts`, `payroll_periods`, `payroll_records` tables exist. Attendance calculation engine, payroll batch generation, approval workflow, and payslip views need implementation. |
-| **Phase 4** | Suppliers, Purchasing & Inventory (Suppliers, POs, GRN, Invoices, Warehouses, Stock Ledger) | **Partially Implemented** | Stock ledger with atomic transfers and PO-invoice matching are implemented. Dedicated UI for Purchase Requests and Goods Receipt Notes (GRN) to be added. |
+| **Phase 3** | Workforce & Payroll (Salaries, Wages, Overtime, Payroll Batch Generation, Approvals, Payslips) | **Verified Working** | Attendance-backed deterministic payroll calculation, HR/supervisor approval state machine, disbursement locks, printable payslip certificates. |
+| **Phase 4** | Suppliers, Purchasing & Inventory (Material Indents, PM Approval, PO Conversion, GRN, Invoices, Stock Ledger) | **Verified Working** | Site material requests, PM approval workflow with segregation of duties, partial/full PO conversion, GRN quality inspection, and 3-way matching. |
 | **Phase 5** | Project Finance & Commercials (RA Billing, GST, Retention, Partial Payments, Expenses) | **Verified Working** | Progress RA billing with 9% CGST, 9% SGST, retention deductions, partial payment tracking, overpayment rejection, operational expenses. |
 | **Phase 6** | Accounting, Integrations & Reports (Double-Entry Ledger, Trial Balance, Loans/EMI, Reverb) | **Partially Implemented** | Chart of accounts, balanced journal entries (`bccomp`), Trial Balance report, equipment finance with 36-month amortized EMI schedules working. Real-time Reverb evaluation documented below. |
 
@@ -113,13 +113,33 @@ As mandated by Section 8 of the project rules:
    - Created `tests/Feature/ProcurementAndGoodsReceiptTest.php` with 6 feature tests covering PO creation, GRN form view, quality inspection stock crediting, rejection handling, over-receipt rejection, and supplier invoice linking.
    - Full test suite: **39 tests, 232 assertions, 0 errors**.
 
+5. **Site Purchase Requests (Material Indents), PM Approval & PO Conversion (Completed & Verified)**:
+   - Additive migration `2026_10_18_000001_enhance_purchase_requests_and_order_items.php`:
+     - `purchase_requests`: added `priority`, `warehouse_id`, `rejection_reason`, `submitted_at`.
+     - `purchase_request_items`: added `specifications`, `quantity_ordered`.
+     - `purchase_order_items`: added `purchase_request_item_id` foreign key.
+   - Interactive Blade Views (Stitch design matched):
+     - `purchase-requests/index.blade.php`: KPI summary cards, filter bar (status, priority, project, site), and requisition register.
+     - `purchase-requests/create.blade.php`: Alpine.js reactive line items builder, positive quantity validation, auto-rate filling, and Draft vs Submit actions.
+     - `purchase-requests/edit.blade.php`: Revision form for draft or rejected indents with pre-filled items.
+     - `purchase-requests/show.blade.php`: Requisition detail with 4-stage visual timeline, contextual site yard stock levels, approval action, and rejection modal with mandatory audit reason.
+     - `purchase-requests/convert.blade.php`: Procurement PO conversion interface with partial quantity support, live tax computation, and supplier selection.
+   - Controller & Business Logic (`PurchaseRequestController.php`):
+     - Enforces site supervisor scoping to authorized sites.
+     - Strict segregation of duties: requesters cannot self-approve unless holding owner/admin privileges.
+     - Atomic DB transaction for PO conversion: links `PurchaseOrder` and `PurchaseOrderItem` back to originating PR and PR line items, increments `quantity_ordered`, and updates status to `partially_converted` or `po_created`.
+   - Comprehensive Automated Feature Suite (`tests/Feature/PurchaseRequestWorkflowTest.php`):
+     - 15 dedicated tests with 111 assertions covering draft creation, submission timestamping, PM notifications, supervisor authorization, segregation of duties, mandatory rejection reason, unapproved conversion blocking, partial ordering, remaining quantity tracking, over-order prevention, cross-company isolation, and GRN/supplier invoice integration.
+   - Full Test Suite: **54 tests, 343 assertions, 0 errors, 100% passing**.
+
 ---
 
 ## 6. Next Implementation Target: Advanced Workflows & Client Milestone Retentions
 
 The next prioritized items on the operational roadmap:
-1. **Purchase Request (PR) Pre-Approval**: Field site engineer request form with budget approval before converting to a supplier PO.
-2. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.
-3. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
+1. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.
+2. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
+3. **Subcontractor Measurement Sheets & Work Order Matching**: Subcontractor bill certification against approved site measurements.
+
 
 

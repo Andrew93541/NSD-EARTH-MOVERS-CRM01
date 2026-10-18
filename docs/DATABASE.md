@@ -58,9 +58,12 @@ erDiagram
 
 ### Procurement & Supplier Payables
 - `suppliers`: `id`, `company_id`, `name`, `gstin`, `payment_terms`, `bank_details`, `timestamps`
-- `purchase_requests`: `id`, `company_id`, `project_id`, `site_id`, `requested_by`, `status` (pending/approved/rejected/ordered), `timestamps`
-- `purchase_orders`: `id`, `company_id`, `supplier_id`, `project_id`, `po_number`, `order_date`, `total_amount`, `status`, `approved_by`, `timestamps`
+- `purchase_requests`: `id`, `company_id`, `pr_number` (string, unique), `project_id`, `site_id`, `warehouse_id` (nullable), `request_date`, `required_by_date`, `status` (`draft`, `pending`, `approved`, `rejected`, `partially_converted`, `po_created`, `cancelled`), `priority` (`normal`, `urgent`, `critical`), `reason` (text), `rejection_reason` (text, nullable), `requested_by` (foreign key `users`), `submitted_at` (datetime, nullable), `approved_by` (foreign key `users`, nullable), `approved_at` (datetime, nullable), `timestamps`
+- `purchase_request_items`: `id`, `purchase_request_id`, `material_id`, `specifications` (string, nullable), `quantity_requested` (DECIMAL 12,3), `quantity_ordered` (DECIMAL 12,3), `estimated_rate` (DECIMAL 12,2), `timestamps`
+- `purchase_orders`: `id`, `company_id`, `supplier_id`, `project_id`, `purchase_request_id` (nullable foreign key `purchase_requests`), `po_number`, `po_date`, `delivery_due_date` (nullable), `subtotal`, `tax_amount`, `total_amount`, `status` (`draft`, `approved`, `partially_received`, `completed`, `cancelled`), `terms_and_conditions`, `created_by`, `approved_by`, `approved_at`, `timestamps`
+- `purchase_order_items`: `id`, `purchase_order_id`, `material_id`, `purchase_request_item_id` (nullable foreign key `purchase_request_items`), `quantity_ordered` (DECIMAL 12,3), `quantity_received` (DECIMAL 12,3), `unit_price` (DECIMAL 12,2), `tax_percent` (DECIMAL 5,2), `total_price` (DECIMAL 12,2), `timestamps`
 - `goods_receipts`: `id`, `company_id`, `purchase_order_id`, `warehouse_id`, `grn_number`, `received_date`, `timestamps`
+- `goods_receipt_items`: `id`, `goods_receipt_id`, `purchase_order_item_id`, `material_id`, `quantity_received`, `quantity_accepted`, `quantity_rejected`, `rejection_reason`, `timestamps`
 - `supplier_invoices`: `id`, `company_id`, `supplier_id`, `purchase_order_id`, `invoice_number`, `invoice_date`, `due_date`, `subtotal`, `tax_amount`, `total_amount`, `paid_amount`, `status` (draft/pending_approval/approved/paid/partially_paid), `timestamps`
 
 ### Billing & Client Receivables
