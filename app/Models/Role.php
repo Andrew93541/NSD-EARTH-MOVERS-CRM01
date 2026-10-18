@@ -29,6 +29,19 @@ class Role extends Model
         }
 
         $perms = $this->permissions ?? [];
-        return in_array($permission, $perms, true) || in_array('*', $perms, true);
+        if (in_array('*', $perms, true) || in_array($permission, $perms, true)) {
+            return true;
+        }
+
+        foreach ($perms as $p) {
+            if (str_ends_with($p, '.*')) {
+                $prefix = substr($p, 0, -2);
+                if (str_starts_with($permission, $prefix . '.') || $permission === $prefix) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

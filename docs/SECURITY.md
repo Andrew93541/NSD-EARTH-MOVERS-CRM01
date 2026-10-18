@@ -29,23 +29,28 @@ BuildFlow enforces server-side role and permission verification across all contr
 | Role | Permitted Areas | Confidential / Prohibited Areas | Direct Route Guards |
 |---|---|---|---|
 | **Company Owner / Admin** | All modules, approvals, company settings, policies, override decisions | None | Unrestricted (`*` permission) |
-| **Project Manager** | Assigned projects, sites, daily logs, material requests, attendance muster | Company bank accounts, financial journals, payroll compensation, approval policies | 403 on `/payroll`, `/accounting`, `/finance/policies` |
-| **Site Supervisor** | Assigned sites, daily site logs, muster roll attendance recording, material requests | Financial accounting, client billing, company payroll, employee bank details, purchase order creation | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/procurement/orders/create` |
-| **HR / Payroll Officer** | Employee profiles, shifts, biometric attendance audit, payroll batch preparation, payslips | Financial accounting, client billing, procurement PO approvals | 403 on `/accounting/*`, `/billing/*`, `/procurement/policies` |
-| **Finance Approver / Accountant** | Financial journals, trial balance, client billing & receipts, supplier invoice verification, loan EMI schedules | Direct procurement creation, site master editing, approval policy configuration | 403 on `/procurement/policies`, `/procurement/orders/create` |
-| **Procurement Officer** | Purchase requests review, PO conversion, supplier management, price quotes | Financial accounting journals, payroll records, client billing | 403 on `/payroll`, `/accounting/*`, `/billing/*` |
-| **Storekeeper** | Goods receipt notes (GRN), quality inspection, warehouse stock transfers, inventory ledgers | Financial journals, payroll, client billing, PO issuance | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/procurement/orders/create` |
+| **Project Manager** | Assigned projects, sites, daily logs, material requests, attendance muster, retention claim drafting & certificates | Company bank accounts, financial journals, payroll compensation, approval policies, approving own claims | 403 on `/payroll`, `/accounting`, `/finance/policies`, 403 on self-approving claims |
+| **Site Supervisor** | Assigned sites, daily site logs, muster roll attendance recording, material requests | Financial accounting, client billing, retention claims, company payroll, employee bank details | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/retention/*`, `/procurement/orders/create` |
+| **HR / Payroll Officer** | Employee profiles, shifts, biometric attendance audit, payroll batch preparation, payslips | Financial accounting, client billing, retention claims, procurement PO approvals | 403 on `/accounting/*`, `/billing/*`, `/retention/*`, `/procurement/policies` |
+| **Finance Approver / Accountant** | Financial journals, trial balance, client billing & receipts, retention claim approvals, client dispatch, claim receipts | Direct procurement creation, site master editing, approval policy configuration | 403 on `/procurement/policies`, `/procurement/orders/create` |
+| **Procurement Officer** | Purchase requests review, PO conversion, supplier management, price quotes | Financial accounting journals, payroll records, client billing, retention claims | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/retention/*` |
+| **Storekeeper** | Goods receipt notes (GRN), quality inspection, warehouse stock transfers, inventory ledgers | Financial journals, payroll, client billing, retention claims, PO issuance | 403 on `/payroll`, `/accounting/*`, `/billing/*`, `/retention/*`, `/procurement/orders/create` |
 
 ---
 
 ## 6. Concurrency Safeguards & Immutable Historical State
 
 1. **Pessimistic Row Locking (`lockForUpdate()`)**:
-   - Client billing payment recording acquires row-level locks on `client_invoices` within `DB::transaction`, preventing double-receipt and overpayment race conditions.
-   - Purchase request conversion acquires row locks on `purchase_requests` and `purchase_request_items` preventing duplicate PO issuance from rapid concurrent submissions.
-   - Loan EMI repayments lock installment records and verify `status !== 'paid'` inside the transaction.
-2. **Historical Attendance Protection**:
+   - **Client Retention Release Claims**: Claim creation acquires row locks on `client_contracts` and source `client_invoices` with `lockForUpdate()`, strictly preventing duplicate claim allocations across concurrent requests.
+   - **Retention Payment Remittances**: Receipt recording acquires row locks on `retention_release_claims` with `lockForUpdate()` within `DB::transaction`, guaranteeing that total receipts never exceed the outstanding balance due.
+   - **Client Billing Payments**: Payment recording acquires row-level locks on `client_invoices` within `DB::transaction`, preventing double-receipt and overpayment race conditions.
+   - **Purchase Request Conversion**: Conversion acquires row locks on `purchase_requests` and `purchase_request_items` preventing duplicate PO issuance from rapid concurrent submissions.
+   - **Loan EMI Repayments**: EMI repayments lock installment records and verify `status !== 'paid'` inside the transaction.
+2. **Segregation of Duties (SoD)**:
+   - Claim preparers are strictly prohibited from approving their own retention claims (`claim->created_by === auth()->id()`), enforced at the controller and service level. Only independent review roles or Company Administrators can clear claims for billing.
+3. **Historical Attendance Protection**:
    - Daily attendance muster roll records cannot be updated or created for dates falling within an `approved` or `disbursed` `PayrollPeriod`. Attempts throw HTTP 403.
-3. **Double-Entry Journal & Stock Ledger Immutability**:
-   - Posted general ledger journal lines and stock ledger movement entries are immutable. Reversals must be executed via distinct counter-balancing transactions.
+4. **Double-Entry Journal & Stock Ledger Immutability**:
+   - Posted general ledger journal lines, retention asset vouchers, and stock ledger movement entries are immutable. Reversals must be executed via distinct counter-balancing transactions.
+
 

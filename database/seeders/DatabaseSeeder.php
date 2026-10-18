@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\Account;
 use App\Models\Client;
+use App\Models\ClientCompletionCertificate;
+use App\Models\ClientContract;
 use App\Models\ClientInvoice;
 use App\Models\Company;
 use App\Models\DailyAttendance;
@@ -577,9 +579,72 @@ class DatabaseSeeder extends Seeder
             'quantity_received' => 0.000,
         ]);
 
-        // 11. Invoices & Receivables (Matching Stitch: Receivables = ₹45.2 Lakhs)
+        // 11. Client Contracts & Retention Configuration
+        $contract1 = ClientContract::create([
+            'company_id' => $company->id,
+            'client_id' => $client1->id,
+            'project_id' => $project1->id,
+            'contract_number' => 'CNT-2026-RR01',
+            'title' => 'Riverside Residency Phase 2 - Civil & Structural Main Contract',
+            'contract_value' => 50000000.00,
+            'start_date' => Carbon::now()->subMonths(8),
+            'completion_date' => Carbon::now()->subDays(15),
+            'retention_applicable' => true,
+            'retention_rate_percent' => 5.00,
+            'max_retention_cap' => 2500000.00,
+            'dlp_duration_months' => 12,
+            'dlp_start_date_basis' => 'practical_completion',
+            'release_terms_type' => 'staged_50_50',
+            'status' => 'active',
+            'notes' => 'GCC Clause 14.3: 50% retention release upon Practical Completion Certificate; 50% upon 12-month DLP clearance.',
+            'created_by' => $accountant->id,
+        ]);
+
+        $contract2 = ClientContract::create([
+            'company_id' => $company->id,
+            'client_id' => $client2->id,
+            'project_id' => $project2->id,
+            'contract_number' => 'CNT-2026-MT04',
+            'title' => 'Metro Line 4 - Earthmoving & Slope Stabilization Works',
+            'contract_value' => 35000000.00,
+            'start_date' => Carbon::now()->subMonths(5),
+            'completion_date' => Carbon::now()->addMonths(4),
+            'retention_applicable' => true,
+            'retention_rate_percent' => 5.00,
+            'max_retention_cap' => 1750000.00,
+            'dlp_duration_months' => 12,
+            'dlp_start_date_basis' => 'practical_completion',
+            'release_terms_type' => 'staged_50_50',
+            'status' => 'active',
+            'notes' => 'Contractual retention applicable on all RA bills at 5%.',
+            'created_by' => $accountant->id,
+        ]);
+
+        // Verified Practical Completion Certificate for Contract 1 (making Stage 1 eligible!)
+        ClientCompletionCertificate::create([
+            'company_id' => $company->id,
+            'client_contract_id' => $contract1->id,
+            'project_id' => $project1->id,
+            'certificate_type' => 'practical_completion',
+            'certificate_number' => 'PCC-2026-RR-091',
+            'issuing_authority' => 'Prestige Infra Projects Directorate & Consulting Engineers',
+            'issue_date' => Carbon::now()->subDays(10),
+            'effective_date' => Carbon::now()->subDays(10),
+            'dlp_expiry_date' => Carbon::now()->subDays(10)->addMonths(12),
+            'status' => 'verified',
+            'defect_count_reported' => 3,
+            'defect_count_resolved' => 3,
+            'all_defects_rectified' => true,
+            'inspection_remarks' => 'Joint final snag list verified and all minor defects cleared. Substantial completion certified.',
+            'verified_by' => $admin->id,
+            'verified_at' => Carbon::now()->subDays(9),
+            'created_by' => $accountant->id,
+        ]);
+
+        // 12. Invoices & Receivables (Matching Stitch: Receivables = ₹45.2 Lakhs)
         ClientInvoice::create([
             'company_id' => $company->id,
+            'client_contract_id' => $contract1->id,
             'client_id' => $client1->id,
             'project_id' => $project1->id,
             'invoice_number' => 'INV-RA-2026-012',
@@ -598,6 +663,7 @@ class DatabaseSeeder extends Seeder
 
         ClientInvoice::create([
             'company_id' => $company->id,
+            'client_contract_id' => $contract2->id,
             'client_id' => $client2->id,
             'project_id' => $project2->id,
             'invoice_number' => 'INV-RA-2026-013',
@@ -671,6 +737,15 @@ class DatabaseSeeder extends Seeder
             'company_id' => $company->id,
             'code' => '1020',
             'name' => 'Accounts Receivable (Clients)',
+            'account_type' => 'asset',
+            'sub_type' => 'current_asset',
+            'is_system' => true,
+        ]);
+
+        $retAcc = Account::create([
+            'company_id' => $company->id,
+            'code' => '1025',
+            'name' => 'Retention Money Withheld by Clients',
             'account_type' => 'asset',
             'sub_type' => 'current_asset',
             'is_system' => true,

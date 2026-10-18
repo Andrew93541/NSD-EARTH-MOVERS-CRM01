@@ -43,13 +43,37 @@ class ClientInvoice extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function clientContract(): BelongsTo
+    {
+        return $this->belongsTo(ClientContract::class);
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(InvoicePayment::class);
     }
 
+    public function retentionClaimItems(): HasMany
+    {
+        return $this->hasMany(RetentionClaimInvoiceItem::class);
+    }
+
     public function balanceDue(): float
     {
         return (float) ($this->total_amount - $this->paid_amount);
+    }
+
+    public function claimedRetention(): float
+    {
+        return (float) $this->retentionClaimItems()
+            ->whereHas('claim', function ($q) {
+                $q->whereNotIn('status', ['draft', 'rejected']);
+            })
+            ->sum('claim_allocated_amount');
+    }
+
+    public function unclaimedRetention(): float
+    {
+        return max(0.0, round((float) $this->retention_amount - $this->claimedRetention(), 2));
     }
 }

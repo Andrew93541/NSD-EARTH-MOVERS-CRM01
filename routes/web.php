@@ -15,6 +15,7 @@ use App\Http\Controllers\ProcurementApprovalPolicyController;
 use App\Http\Controllers\ProcurementController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\PurchaseRequestController;
+use App\Http\Controllers\RetentionController;
 use App\Http\Controllers\SiteOperationController;
 use App\Http\Controllers\WorkspaceController;
 use Illuminate\Support\Facades\Route;
@@ -139,6 +140,23 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/', [BillingController::class, 'storeInvoice'])->name('store');
         Route::get('/{invoice}', [BillingController::class, 'show'])->name('show');
         Route::post('/{invoice}/payments', [BillingController::class, 'recordPayment'])->name('payments.store');
+    });
+
+    // Client Retention & Defect Liability Workflow
+    Route::prefix('retention')->name('retention.')->group(function () {
+        Route::get('/', [RetentionController::class, 'index'])->name('index');
+        Route::get('/contracts/create', [RetentionController::class, 'createContract'])->name('contracts.create');
+        Route::post('/contracts', [RetentionController::class, 'storeContract'])->name('contracts.store');
+        Route::get('/contracts/{contract}', [RetentionController::class, 'showContract'])->name('contracts.show');
+        Route::post('/contracts/{contract}/certificates', [RetentionController::class, 'storeCertificate'])->name('contracts.certificates.store');
+        Route::get('/contracts/{contract}/claims/create', [RetentionController::class, 'createClaim'])->name('claims.create');
+        Route::post('/contracts/{contract}/claims', [RetentionController::class, 'storeClaim'])->name('claims.store');
+        Route::get('/claims/{claim}', [RetentionController::class, 'showClaim'])->name('claims.show');
+        Route::post('/claims/{claim}/submit', [RetentionController::class, 'submitClaim'])->name('claims.submit');
+        Route::post('/claims/{claim}/approve', [RetentionController::class, 'approveClaim'])->name('claims.approve');
+        Route::post('/claims/{claim}/reject', [RetentionController::class, 'rejectClaim'])->name('claims.reject');
+        Route::post('/claims/{claim}/client-submit', [RetentionController::class, 'markClientSubmitted'])->name('claims.client-submit');
+        Route::post('/claims/{claim}/receipts', [RetentionController::class, 'recordReceipt'])->name('claims.receipts.store');
     });
 
     // Expenses & Loans

@@ -104,3 +104,34 @@ This document outlines the phased implementation plan, tech stack alignment, arc
 - [x] Verify UI visual fidelity against Stitch master design tokens, typography, and responsive viewports (Desktop, Tablet, Mobile)
 - [x] Complete setup guide in `README.md` and verify `SmokeTest.php` across all 35 main routes
 - [x] Defect register remediation (10 security, integrity, and view defects remediated)
+
+### [x] Phase 9 — Client Retention Release & Defect Liability Workflow
+- [x] Schema & Migration: `client_contracts`, `client_completion_certificates`, `retention_release_claims`, `retention_claim_invoice_items`, `retention_claim_payments` (`2026_10_18_000003_create_client_retention_and_contracts_tables.php`)
+- [x] Eloquent Models: `ClientContract`, `ClientCompletionCertificate`, `RetentionReleaseClaim`, `RetentionClaimInvoiceItem`, `RetentionClaimPayment`, updated `ClientInvoice` and `Role` module wildcard support
+- [x] Workflow Engine (`RetentionService.php`):
+  - Contract-specific retention terms (custom rate, max cap, 12/24-month DLP, staged vs single release)
+  - Prerequisite verification (Practical Completion Certificate verification, DLP maturity countdown, zero-defect clearance)
+  - Transactional claim creation with proportional source RA bill allocation and pessimistic row locking (`lockForUpdate()`)
+  - Server-side segregation of duties (claim preparers prohibited from self-approving)
+  - Mandatory rejection reason logging (min 5 characters) with audit trail
+  - Zero revenue duplication: Client billing posts Debit `1020` AR / Credit `1025` Retention Asset without duplicating project revenue
+  - Payment remittance handling with overpayment prevention and balanced bank receipt journal postings (Debit `1010` Bank / Credit `1020` AR)
+- [x] User Interface (Google Stitch `15768566540196779944` Aligned):
+  - Retention Register (`/retention`): 5 dynamic KPI cards, search/filter bar, contracts overview, and active claims table
+  - Contract Detail (`/retention/contracts/{id}`): Contract terms, stage cards with ineligibility reasons, source RA bills, certificate audit trail, and claim register
+  - Create Claim Form (`/retention/contracts/{id}/claims/create`): Maximum eligible limit enforcement, expected payment due date, source bill allocation preview
+  - Claim Detail & Settlement (`/retention/claims/{id}`): 5-step visual lifecycle timeline, approval modal, rejection modal, client dispatch modal, and receipt settlement modal
+- [x] Feature Tests (`tests/Feature/ClientRetentionAndDlpWorkflowTest.php` - 9 tests, 43 assertions):
+  - Contract retention calculations & cap enforcement
+  - Ineligible stage claim blocking (missing PCC or active DLP)
+  - Claim creation and source invoice allocation
+  - Server-side approval authorization & segregation of duties enforcement
+  - Mandatory rejection reason validation
+  - Concurrency & double-claiming prevention
+  - Partial & full client payment receipt settlement
+  - Zero revenue duplication & balanced double-entry accounting journals
+  - Cross-company tenant isolation
+- [x] Real Browser E2E Audit with Puppeteer (`tests/Browser/e2e_retention_audit.js` - All 6 screenshots captured and verified):
+  - Complete lifecycle: Draft -> Review -> Approved -> Billed to Client -> Received -> Settled
+- [x] Full automated test suite passing: **77 tests, 499 assertions, 0 errors, 100% passing**
+

@@ -26,6 +26,14 @@ erDiagram
     SUPPLIERS ||--o{ PURCHASE_ORDERS : fulfills
     PURCHASE_ORDERS ||--o{ SUPPLIER_INVOICES : bills
     COMPANIES ||--o{ CLIENTS : contracts_with
+    CLIENTS ||--o{ CLIENT_CONTRACTS : signs
+    PROJECTS ||--o{ CLIENT_CONTRACTS : governs
+    CLIENT_CONTRACTS ||--o{ CLIENT_INVOICES : associates_with
+    CLIENT_CONTRACTS ||--o{ CLIENT_COMPLETION_CERTIFICATES : certifies
+    CLIENT_CONTRACTS ||--o{ RETENTION_RELEASE_CLAIMS : claims_against
+    RETENTION_RELEASE_CLAIMS ||--o{ RETENTION_CLAIM_INVOICE_ITEMS : draws_from
+    CLIENT_INVOICES ||--o{ RETENTION_CLAIM_INVOICE_ITEMS : allocated_to
+    RETENTION_RELEASE_CLAIMS ||--o{ RETENTION_CLAIM_PAYMENTS : receives_receipts
     CLIENTS ||--o{ CLIENT_INVOICES : receives_bills
     COMPANIES ||--o{ ACCOUNTS : defines
     ACCOUNTS ||--o{ JOURNAL_ENTRY_LINES : books
@@ -74,8 +82,15 @@ erDiagram
 - `supplier_invoices`: `id`, `company_id`, `supplier_id`, `purchase_order_id`, `invoice_number`, `invoice_date`, `due_date`, `subtotal`, `tax_amount`, `total_amount`, `paid_amount`, `status` (draft/pending_approval/approved/paid/partially_paid), `timestamps`
 
 ### Billing & Client Receivables
-- `client_invoices`: `id`, `company_id`, `client_id`, `project_id`, `invoice_number`, `bill_type` (milestone/progress_ra), `issue_date`, `due_date`, `subtotal`, `cgst_amount`, `sgst_amount`, `igst_amount`, `retention_rate`, `retention_amount`, `total_payable`, `paid_amount`, `status` (draft/submitted/approved/paid/partially_paid/overdue), `timestamps`
+- `client_invoices`: `id`, `company_id`, `client_id`, `project_id`, `client_contract_id` (nullable foreign key), `invoice_number`, `bill_type` (milestone/progress_ra), `issue_date`, `due_date`, `subtotal`, `cgst_amount`, `sgst_amount`, `igst_amount`, `retention_rate`, `retention_amount`, `total_payable`, `paid_amount`, `status` (draft/submitted/approved/paid/partially_paid/overdue), `timestamps`
 - `invoice_payments`: `id`, `company_id`, `client_invoice_id`, `payment_date`, `amount`, `payment_mode`, `transaction_ref`, `timestamps`
+
+### Client Contracts, Retention & Defect Liability (DLP)
+- `client_contracts`: `id`, `company_id`, `client_id`, `project_id`, `contract_number`, `title`, `contract_value` (DECIMAL 15,2), `retention_applicable` (BOOLEAN), `retention_rate` (DECIMAL 5,2), `retention_cap_amount` (DECIMAL 15,2, nullable), `release_schedule_type` (`staged_50_50`, `single_full_release`, `custom_milestones`), `dlp_duration_months` (INT), `dlp_start_basis` (`practical_completion_date`, `final_bill_date`, `handover_date`), `require_dlp_clearance_certificate` (BOOLEAN), `require_pcc_certificate` (BOOLEAN), `status` (`draft`, `active`, `completed`, `under_dispute`, `closed`), `timestamps`
+- `client_completion_certificates`: `id`, `company_id`, `client_contract_id`, `project_id`, `certificate_type` (`practical_completion`, `dlp_clearance`, `handover_note`, `snag_clearance`), `certificate_number`, `issue_date`, `issuing_authority`, `inspecting_engineer`, `status` (`draft`, `verified`, `rejected`), `all_defects_rectified` (BOOLEAN), `defect_count_reported` (INT), `defect_count_resolved` (INT), `document_path`, `file_hash`, `notes`, `created_by`, `verified_by`, `verified_at`, `timestamps`
+- `retention_release_claims`: `id`, `company_id`, `client_contract_id`, `client_id`, `project_id`, `completion_certificate_id` (nullable), `claim_number`, `stage_key`, `stage_name`, `eligible_amount` (DECIMAL 15,2), `claimed_amount` (DECIMAL 15,2), `approved_amount` (DECIMAL 15,2, nullable), `received_amount` (DECIMAL 15,2), `status` (`draft`, `submitted`, `approved`, `rejected`, `client_submitted`, `partially_received`, `received`, `closed`), `submission_date`, `due_date`, `client_reference`, `client_submitted_at`, `rejection_reason`, `notes`, `created_by`, `reviewed_by`, `reviewed_at`, `timestamps`
+- `retention_claim_invoice_items`: `id`, `retention_release_claim_id`, `client_invoice_id`, `source_retention_amount` (DECIMAL 15,2), `previously_claimed_amount` (DECIMAL 15,2), `claim_allocated_amount` (DECIMAL 15,2), `timestamps`
+- `retention_claim_payments`: `id`, `company_id`, `retention_release_claim_id`, `payment_date`, `amount` (DECIMAL 15,2), `payment_mode` (`bank_transfer`, `cheque`, `cash`, `adjustment`), `reference_number`, `bank_account_id` (nullable), `notes`, `created_by`, `timestamps`
 
 ### Financial Accounting & Loans
 - `accounts`: `id`, `company_id`, `code`, `name`, `account_type` (asset/liability/equity/income/expense), `parent_id`, `is_active`, `timestamps`

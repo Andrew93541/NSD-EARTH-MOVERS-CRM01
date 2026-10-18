@@ -203,13 +203,51 @@ As mandated by Section 8 of the project rules:
 
 ---
 
-## 8. Next Recommended Implementation Target
+## 8. Client Retention Release & Defect Liability Workflow (Completed & Verified)
 
-With core operational workflows, multi-tier approvals, role-based access control, and browser validation complete:
-1. **Client Retention Release Workflow**: Mechanism to bill and release accumulated defect liability retentions upon project completion certificate issuance.
-2. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
-3. **Subcontractor Measurement Sheets & Work Order Matching**: Subcontractor bill certification against approved site measurements.
+### 8.1. Implementation Scope & Architecture
+1. **Contractual Terms Configuration**:
+   - `client_contracts` table captures project-specific retention terms: custom percentage (e.g. 5% - 10%), maximum cap limits, release schedules (`staged_50_50`, `single_full_release`, custom), Defect Liability Period (DLP) duration (e.g. 12 or 24 months), and certificate prerequisites.
+2. **Engineering Certifications & Eligibility**:
+   - `client_completion_certificates` stores Practical Completion Certificates (PCC), DLP Clearance Certificates (DLCC), Handover notes, and snag-clearance records with defect counts (`defect_count_reported` vs `defect_count_resolved`, `all_defects_rectified`).
+   - Strict server-side eligibility: Stage 1 requires verified PCC; Stage 2 requires DLP maturity countdown + approved zero-defect clearance certificate. Ineligible stages display contractually accurate blockers.
+3. **Release Claim Lifecycle**:
+   - State machine: `Draft -> Submitted (Under Review) -> Approved / Rejected -> Client Submitted (Billed) -> Partially Received / Received -> Closed`.
+   - Proportional allocation across source client RA bills (`retention_claim_invoice_items`) ensuring full backward auditability.
+   - Pessimistic row locking (`lockForUpdate()`) prevents concurrent duplicate claims.
+4. **Segregation of Duties & Rejection Audit**:
+   - Rejection requires mandatory recorded reason (min 5 characters) and preserves historical revisions.
+   - Requesters/preparers cannot approve their own claims unless holding Company Administrator privileges.
+5. **Zero Revenue Duplication & Accounting Ledger**:
+   - Client submission journal entry: Debit `1020` Accounts Receivable, Credit `1025` Retention Money Withheld by Clients.
+   - Client payment receipt journal entry: Debit `1010` Operating Bank Account, Credit `1020` Accounts Receivable.
+   - Revenue is recognized solely at RA billing, preventing double-counting on retention release or collection.
+6. **Client Settlement & Receipts**:
+   - Tracks cash remittances, bank transfers, cheques, and UTR references against claims.
+   - Prevents overpayment exceeding outstanding balance due.
 
+### 8.2. Verification & Automated Quality Evidence
+- **Automated Feature Test Suite**:
+  - `tests/Feature/ClientRetentionAndDlpWorkflowTest.php`: 9 comprehensive test cases (43 assertions) covering calculations, caps, certificate prerequisites, approval roles, segregation of duties, concurrency locks, partial receipts, double-entry balanced accounting, and cross-company isolation.
+  - **Full PHPUnit Suite**: **77 tests, 499 assertions, 0 errors, 100% green**.
+- **Real Browser E2E Test Suite (`tests/Browser/e2e_retention_audit.js`)**:
+  - Automated via Puppeteer driving macOS Google Chrome.
+  - Complete lifecycle execution from Admin login -> Register -> Contract detail -> Claim draft -> Review submission -> Approval modal -> Client dispatch modal -> Receipt settlement -> Live register metric updates.
+  - All 6 screenshots captured and verified:
+    1. `retention_01_register.png`: 5 KPI cards, contract list with DLP badges, empty active claims.
+    2. `retention_02_contract_detail.png`: Terms, Stage 1 eligible card, Stage 2 DLP countdown blocker, source RA bill, certificate audit trail.
+    3. `retention_03_claim_create.png`: Stage prerequisite banner, max permissible limit helper, source RA bill allocation preview.
+    4. `retention_04_claim_detail.png`: Under Review status badge, 5-step lifecycle timeline, action buttons, itemized source bill drawdowns.
+    5. `retention_05_claim_settled.png`: Fully Received badge, 100% completed lifecycle timeline, settled receipt table with UTR reference.
+    6. `retention_06_register_updated.png`: Live register showing eligible amount decreased by ₹50,000, received increased to ₹50,000, and settled claim in active claims table.
+- **Frontend Build**: Vite production compilation verified clean in 188ms.
 
+---
 
+## 9. Next Recommended Implementation Target
+
+With client retention release, procurement, budget limits, stock availability, and role-based access verified:
+1. **Automated Depreciation & EMI Ledger Postings**: Automatic journal posting from equipment EMI payments directly into the general ledger.
+2. **Subcontractor Measurement Sheets & Work Order Matching**: Subcontractor bill certification against approved site measurements.
+3. **GST Tax Return Filing Vouchers**: Automated GSTR-1 and GSTR-3B reconciliation exports from client invoices and supplier input tax credits.
 

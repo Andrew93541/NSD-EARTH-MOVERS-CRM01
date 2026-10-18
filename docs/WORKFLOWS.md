@@ -150,3 +150,62 @@ flowchart TD
    - Holds company-wide management authority (`*`).
    - Only role authorized to grant budget overrun overrides and configure company approval policy thresholds.
 
+---
+
+## 6. Client Retention Release & Defect Liability Workflow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Ineligible: RA Bill certified & Retention withheld (Asset 1025)
+    Ineligible --> Eligible: Milestone / PCC Verified & DLP Cleared (DLCC)
+    Eligible --> DraftClaim: Prepared against unreleased RA withholds
+    DraftClaim --> SubmittedReview: Submitted for Internal Approval
+    SubmittedReview --> Approved: Commercial / Management Approval (Segregation of Duties)
+    SubmittedReview --> Rejected: Rejection with Mandatory Reason (min 5 chars)
+    Rejected --> DraftClaim: Revised & Resubmitted
+    Approved --> BilledToClient: Submitted to Client (Debit 1020 AR / Credit 1025 Retention Asset)
+    BilledToClient --> PartiallyReceived: Partial Cash Remittance (Debit 1010 Bank / Credit 1020 AR)
+    PartiallyReceived --> FullyReceived: Final Settlement
+    BilledToClient --> FullyReceived: Full Cash Remittance
+    FullyReceived --> Closed: Reconciled & Audited
+    Closed --> [*]
+```
+
+### Steps & Invariants
+
+1. **Contractual Retention Configuration**:
+   - Retention terms are defined per `ClientContract` (e.g. rate 5.0% - 10.0%, maximum retention cap, 12 or 24 months DLP duration, and release schedule e.g. `staged_50_50` or `single_full_release`).
+   - Does not assume hardcoded rates or fixed release splits; contracts validate against maximum cumulative withholding limits.
+   - Separate client-side retention asset from supplier/subcontractor retention liabilities.
+
+2. **Eligibility & Engineering Certifications**:
+   - **Stage 1 (Practical Completion - 50%)**: Requires a verified Practical Completion Certificate (`PCC`) issued by the supervising engineer or consulting authority.
+   - **Stage 2 (Defect Liability Expiry - 50%)**: Requires that the Defect Liability Period (`DLP`) has fully elapsed from the start basis date AND an approved DLP Clearance Certificate (`DLCC`) has verified that all snag list items/defects are 100% rectified (`all_defects_rectified = true`, `defect_count_reported == defect_count_resolved`).
+   - Ineligible stages display specific contractual blockers (e.g. *"Defect Liability Period active until 08 Oct 2027 (12 months remaining)"* or *"Practical Completion Certificate required"*).
+
+3. **Release Claim Preparation & Traceability**:
+   - Claims can only be drafted against eligible, unreleased balances.
+   - Claim preparation atomically allocates the release amount across source RA bills (`retention_claim_invoice_items`), tracking `source_retention_amount`, `previously_claimed_amount`, and `claim_allocated_amount`.
+   - Pessimistic row locking (`lockForUpdate()`) ensures concurrent users cannot claim the same retained amount twice.
+
+4. **Internal Approval & Segregation of Duties**:
+   - Claims require management / finance sign-off before being dispatched to the client.
+   - **Segregation of Duties**: The user who prepared/drafted the claim cannot approve their own claim unless they hold the Company Owner / Administrator role.
+   - **Rejection**: Requires a mandatory, recorded reason (min 5 characters) and retains full audit history.
+
+5. **Client Submission & Revenue-Neutral Accounting**:
+   - Marking a claim as submitted records the client inward reference and dispatch date.
+   - **Zero Revenue Duplication**: Revenue was already recognized at the time of original RA billing. Release of retention simply converts a long-term retention receivable asset into a currently due trade receivable.
+   - **Balanced Journal Entry**:
+     - **Debit**: Account `1020` (Accounts Receivable / Trade Debtors)
+     - **Credit**: Account `1025` (Retention Money Withheld by Clients)
+
+6. **Client Remittance & Receipt Settlement**:
+   - Authorized finance users record cash/bank receipts against approved/billed claims.
+   - Supports partial and final settlement with bank account selection, payment mode (NEFT/RTGS, Cheque, Cash), and UTR reference number.
+   - Database row-locking prevents overpayment or double-allocation exceeding `claim->balanceDue()`.
+   - **Balanced Receipt Journal Entry**:
+     - **Debit**: Account `1010` (Operating Bank Account)
+     - **Credit**: Account `1020` (Accounts Receivable)
+   - Real-time updates reflect across the live Retention Register and client balance sheets without duplicate balance copies.
+

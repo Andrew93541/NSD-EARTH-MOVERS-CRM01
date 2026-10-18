@@ -38,6 +38,7 @@
                 $canPayroll = $u && ($u->hasPermission('*') || $u->hasPermission('payroll.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'hr_officer', 'accountant']));
                 
                 $canBilling = $u && ($u->hasPermission('*') || $u->hasPermission('billing.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant']));
+                $canRetention = $u && ($u->hasPermission('*') || $u->hasPermission('retention.*') || $u->hasPermission('retention.view') || $u->hasPermission('billing.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant', 'project_manager']));
                 $canPR = $u && ($u->hasPermission('*') || $u->hasPermission('materials.request') || $u->hasPermission('procurement.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'procurement_officer']));
                 $canProcurement = $u && ($u->hasPermission('*') || $u->hasPermission('procurement.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'procurement_officer', 'storekeeper']));
                 $canExpenses = $u && ($u->hasPermission('*') || $u->hasPermission('expenses.*') || $u->hasPermission('finance.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'accountant', 'project_manager']));
@@ -107,6 +108,13 @@
                         <a href="{{ route('billing.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('billing.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"/></svg>
                             <span>Client RA Billing</span>
+                        </a>
+                        @endif
+
+                        @if($canRetention)
+                        <a href="{{ route('retention.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition {{ request()->routeIs('retention.*') ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80' }}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            <span>Retention & DLP</span>
                         </a>
                         @endif
 
