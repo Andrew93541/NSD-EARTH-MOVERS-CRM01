@@ -11,6 +11,7 @@ class VerifyDisasterRecoveryCommand extends Command
 {
     protected $signature = 'buildflow:verify-recovery 
                             {--backup= : Specific durable backup ID to restore and verify} 
+                            {--target-db=buildflow_restore_test : Isolated disposable database name}
                             {--keep-disposable : Keep the disposable database for inspection}';
 
     protected $description = 'Perform an isolated, non-destructive disaster recovery restore audit from durable backup';
@@ -22,10 +23,15 @@ class VerifyDisasterRecoveryCommand extends Command
         $this->info('  NSD Earth Movers & Construction Ltd — Production Readiness');
         $this->info('===============================================================');
 
-        $sourceDb = (config('database.connections.mysql.database') && config('database.connections.mysql.database') !== ':memory:') 
+        $activeDb = (config('database.connections.mysql.database') && config('database.connections.mysql.database') !== ':memory:') 
             ? config('database.connections.mysql.database') 
             : 'buildflow_crm';
-        $targetDb = 'buildflow_restore_test';
+
+        $targetDb = (string) $this->option('target-db');
+
+        // CRITICAL SAFETY GUARD: Prevent destructive restore onto active production/development database!
+        $this->assertSafeRestoreTarget($targetDb, $activeDb);
+
         $tempDir = storage_path('app/backup_verification_' . time());
         $restoreStorageDir = "{$tempDir}/restored_storage";
 
@@ -36,10 +42,10 @@ class VerifyDisasterRecoveryCommand extends Command
             $mysqlHost = config('database.connections.mysql.host', '127.0.0.1');
             $mysqlPort = config('database.connections.mysql.port', 3306);
             $mysqlUser = config('database.connections.mysql.username', 'root');
-            $mysqlPass = config('database.connections.mysql.password', '');
+            $mysqlPass = (string) config('database.connections.mysql.password', '');
 
             $sourcePdo = new PDO(
-                "mysql:host={$mysqlHost};port={$mysqlPort};dbname={$sourceDb};charset=utf8mb4",
+                "mysql:host={$mysqlHost};port={$mysqlPort};dbname={$activeDb};charset=utf8mb4",
                 $mysqlUser,
                 $mysqlPass,
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
@@ -62,7 +68,7 @@ class VerifyDisasterRecoveryCommand extends Command
             }
 
             // Validate the backup prior to restore
-            $this->line("  Validating backup integrity and checksums...");
+            $this->line("  Validating backup integrity and AEAD authentication...");
             $valResult = $manager->validateBackup($backupId);
             if (! $valResult['is_valid']) {
                 throw new \RuntimeException("Backup [{$backupId}] failed integrity validation: " . implode(', ', $valResult['errors']));
@@ -75,12 +81,13 @@ class VerifyDisasterRecoveryCommand extends Command
             $backupDir = "{$manager->getBasePath()}/{$backupId}";
             $dumpFile = $manifest['database']['dump_file'];
             $isEncrypted = (bool) ($manifest['encryption']['enabled'] ?? false);
-            $encryptionKey = config('backup.encryption.key', config('app.key'));
+            $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
 
             $sqlToRestore = "{$tempDir}/database_to_restore.sql";
             if ($isEncrypted) {
-                $this->line("  Decrypting database dump using AES-256...");
-                $manager->decryptFile("{$backupDir}/{$dumpFile}", $sqlToRestore, $encryptionKey);
+                $cipher = $manifest['encryption']['cipher'] ?? 'unknown';
+                $this->line("  Decrypting database dump using {$cipher}...");
+                $manager->decryptFile("{$backupDir}/{$dumpFile}", $sqlToRestore, $encryptionKey, $backupId, 'database.sql');
             } else {
                 copy("{$backupDir}/{$dumpFile}", $sqlToRestore);
             }
@@ -90,8 +97,9 @@ class VerifyDisasterRecoveryCommand extends Command
                 $storageArchive = $manifest['storage']['archive_file'];
                 $storageToRestore = "{$tempDir}/storage_to_restore.tar.gz";
                 if ($isEncrypted) {
-                    $this->line("  Decrypting storage archive using AES-256...");
-                    $manager->decryptFile("{$backupDir}/{$storageArchive}", $storageToRestore, $encryptionKey);
+                    $cipher = $manifest['encryption']['cipher'] ?? 'unknown';
+                    $this->line("  Decrypting storage archive using {$cipher}...");
+                    $manager->decryptFile("{$backupDir}/{$storageArchive}", $storageToRestore, $encryptionKey, $backupId, 'storage.tar.gz');
                 } else {
                     copy("{$backupDir}/{$storageArchive}", $storageToRestore);
                 }
@@ -103,12 +111,12 @@ class VerifyDisasterRecoveryCommand extends Command
             $sourcePdo->exec("CREATE DATABASE `{$targetDb}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
             $this->line("  Created clean isolated database `{$targetDb}`.");
 
-            // STEP 4: Restore Snapshot into Disposable Database & Storage
+            // STEP 4: Restore Snapshot into Disposable Database & Storage (Secure Execution without -p password in CLI args)
             $this->comment("\n[4/6] Restoring Snapshot to Isolated Targets...");
             $restoreCmd = "mysql -h {$mysqlHost} -P {$mysqlPort} -u {$mysqlUser} " .
-                          ($mysqlPass ? "-p" . escapeshellarg($mysqlPass) . " " : "") .
                           "{$targetDb} < " . escapeshellarg($sqlToRestore);
-            exec($restoreCmd, $restoreOutput, $restoreCode);
+
+            $restoreCode = $this->runSecureCommand($restoreCmd, $mysqlPass);
             if ($restoreCode !== 0) {
                 throw new \RuntimeException("mysql restore failed with exit code {$restoreCode}");
             }
@@ -116,7 +124,10 @@ class VerifyDisasterRecoveryCommand extends Command
 
             if ($storageToRestore && file_exists($storageToRestore)) {
                 $untarCmd = "tar -xzf " . escapeshellarg($storageToRestore) . " -C " . escapeshellarg($restoreStorageDir);
-                exec($untarCmd, $untarOutput, $untarCode);
+                $untarCode = $this->runSecureCommand($untarCmd);
+                if ($untarCode !== 0) {
+                    throw new \RuntimeException("tar extraction failed with exit code {$untarCode}");
+                }
                 $this->line("  Private files restored to isolated directory: {$restoreStorageDir}");
             }
 
@@ -166,7 +177,7 @@ class VerifyDisasterRecoveryCommand extends Command
             $targetCredit = (float) ($targetTb['total_credit'] ?? 0.0);
             $expectedDebit = (float) ($manifest['financial_ledger']['total_debit'] ?? 0.0);
 
-            if (bccomp($expectedDebit, $targetDebit, 2) === 0 && bccomp($targetDebit, $targetCredit, 2) === 0) {
+            if (bccomp((string) $expectedDebit, (string) $targetDebit, 2) === 0 && bccomp((string) $targetDebit, (string) $targetCredit, 2) === 0) {
                 $this->line("  [PASS] Restored Financial Balance exact parity: Dr ₹" . number_format($targetDebit, 2) . " == Cr ₹" . number_format($targetCredit, 2) . " (Diff: ₹0.00)");
             } else {
                 throw new \RuntimeException("Trial balance mismatch in restored database!");
@@ -196,7 +207,7 @@ class VerifyDisasterRecoveryCommand extends Command
             // STEP 6: Mark Tested in Manifest & Teardown
             $this->comment("\n[6/6] Finalizing Recovery Record & Cleaning Up...");
             $manager->markRestoreTestPassed($backupId);
-            $this->line("  [OK] Marked backup [{$backupId}] as RESTORE_TEST_PASSED and protected from deletion.");
+            $this->line("  [OK] Marked backup [{$backupId}] as RESTORE_TEST_PASSED with bounded retention protection.");
 
             if (! $this->option('keep-disposable')) {
                 $sourcePdo->exec("DROP DATABASE IF EXISTS `{$targetDb}`;");
@@ -217,13 +228,75 @@ class VerifyDisasterRecoveryCommand extends Command
             return Command::SUCCESS;
         } catch (\Throwable $e) {
             $this->error("\nDISASTER RECOVERY VERIFICATION FAILED: " . $e->getMessage());
-            if (isset($sourcePdo)) {
-                $sourcePdo->exec("DROP DATABASE IF EXISTS `{$targetDb}`;");
+            if (isset($sourcePdo) && isset($targetDb) && $targetDb !== $activeDb) {
+                @$sourcePdo->exec("DROP DATABASE IF EXISTS `{$targetDb}`;");
             }
             if (File::exists($tempDir)) {
                 File::deleteDirectory($tempDir);
             }
             return Command::FAILURE;
         }
+    }
+
+    /**
+     * Enforce strict safety guard preventing destructive restore against active or production databases.
+     */
+    protected function assertSafeRestoreTarget(string $targetDb, string $activeDb): void
+    {
+        $normalizedTarget = strtolower(trim($targetDb));
+        $normalizedActive = strtolower(trim($activeDb));
+
+        if (empty($normalizedTarget)) {
+            throw new \RuntimeException("CRITICAL SAFETY VIOLATION: Empty target database specified for restore test.");
+        }
+
+        if ($normalizedTarget === $normalizedActive) {
+            throw new \RuntimeException(
+                "CRITICAL SAFETY VIOLATION: Target restore database [{$targetDb}] matches the active application database [{$activeDb}]! " .
+                "Verification is strictly isolated and will NEVER run against active business databases."
+            );
+        }
+
+        $forbiddenPatterns = ['buildflow_crm', 'buildflow_prod', 'production', 'live', 'primary'];
+        foreach ($forbiddenPatterns as $pattern) {
+            if ($normalizedTarget === $pattern) {
+                throw new \RuntimeException(
+                    "CRITICAL SAFETY VIOLATION: Target database [{$targetDb}] is a protected production database name. " .
+                    "Disposable restore tests must target an isolated sandbox schema (e.g. buildflow_restore_test)."
+                );
+            }
+        }
+    }
+
+    /**
+     * Run a CLI command securely passing MYSQL_PWD via environment without leaking in ps args.
+     */
+    protected function runSecureCommand(string $command, ?string $mysqlPassword = null): int
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $env = [
+            'PATH' => getenv('PATH') ?: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
+        ];
+        if ($mysqlPassword !== null) {
+            $env['MYSQL_PWD'] = $mysqlPassword;
+        }
+
+        $proc = proc_open($command, $descriptors, $pipes, null, $env);
+        if (! is_resource($proc)) {
+            return -1;
+        }
+
+        fclose($pipes[0]);
+        stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+
+        return proc_close($proc);
     }
 }

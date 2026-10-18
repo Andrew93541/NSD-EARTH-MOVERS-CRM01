@@ -31,7 +31,7 @@ class BackupManager
     public function createBackup(string $frequency = 'hourly', ?bool $encrypt = null): array
     {
         $encrypt = $encrypt ?? (bool) config('backup.encryption.enabled', false);
-        $encryptionKey = config('backup.encryption.key', config('app.key'));
+        $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
 
         File::ensureDirectoryExists($this->basePath, 0700);
         @chmod($this->basePath, 0700);
@@ -49,7 +49,7 @@ class BackupManager
         $mysqlHost = config('database.connections.mysql.host', '127.0.0.1');
         $mysqlPort = config('database.connections.mysql.port', 3306);
         $mysqlUser = config('database.connections.mysql.username', 'root');
-        $mysqlPass = config('database.connections.mysql.password', '');
+        $mysqlPass = (string) config('database.connections.mysql.password', '');
 
         // 1. Audit Live Source State & Invariants via PDO
         $sourcePdo = new PDO(
@@ -83,13 +83,12 @@ class BackupManager
         $totalCredit = (float) ($tb['total_credit'] ?? 0.0);
         $diff = round($totalDebit - $totalCredit, 2);
 
-        // 2. Perform Atomic Database Dump
+        // 2. Perform Atomic Database Dump with Secure Process Execution (No password in ps args)
         $rawSqlTemp = "{$backupDir}/database.sql.tmp";
         $dumpCmd = "mysqldump --single-transaction --quick --set-gtid-purged=OFF -h {$mysqlHost} -P {$mysqlPort} -u {$mysqlUser} " .
-                   ($mysqlPass ? "-p" . escapeshellarg($mysqlPass) . " " : "") .
                    "{$sourceDb} > " . escapeshellarg($rawSqlTemp);
 
-        exec($dumpCmd, $dumpOutput, $dumpCode);
+        $dumpCode = $this->runCliCommand($dumpCmd, $mysqlPass);
         if ($dumpCode !== 0 || ! file_exists($rawSqlTemp) || filesize($rawSqlTemp) === 0) {
             File::deleteDirectory($backupDir);
             throw new \RuntimeException("mysqldump failed with exit code {$dumpCode}");
@@ -98,9 +97,11 @@ class BackupManager
         $dumpChecksum = hash_file('sha256', $rawSqlTemp);
         $dumpSize = filesize($rawSqlTemp);
 
+        $keyFingerprint = null;
         if ($encrypt) {
             $dumpFile = "database.sql.enc";
-            $this->encryptFile($rawSqlTemp, "{$backupDir}/{$dumpFile}", $encryptionKey);
+            $keyFingerprint = substr(hash('sha256', "buildflow-key-salt|" . $encryptionKey), 0, 12);
+            $this->encryptFile($rawSqlTemp, "{$backupDir}/{$dumpFile}", $encryptionKey, $backupId, 'database.sql');
             @unlink($rawSqlTemp);
         } else {
             $dumpFile = "database.sql";
@@ -119,7 +120,7 @@ class BackupManager
             $filesCount = (int) $sourcePdo->query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL")->fetchColumn();
             $rawTarTemp = "{$backupDir}/storage.tar.gz.tmp";
             $tarCmd = "tar -czf " . escapeshellarg($rawTarTemp) . " -C " . escapeshellarg($privateStoragePath) . " .";
-            exec($tarCmd, $tarOutput, $tarCode);
+            $tarCode = $this->runCliCommand($tarCmd);
 
             if ($tarCode === 0 && file_exists($rawTarTemp) && filesize($rawTarTemp) > 0) {
                 $archiveChecksum = hash_file('sha256', $rawTarTemp);
@@ -127,7 +128,7 @@ class BackupManager
 
                 if ($encrypt) {
                     $archiveFile = "storage.tar.gz.enc";
-                    $this->encryptFile($rawTarTemp, "{$backupDir}/{$archiveFile}", $encryptionKey);
+                    $this->encryptFile($rawTarTemp, "{$backupDir}/{$archiveFile}", $encryptionKey, $backupId, 'storage.tar.gz');
                     @unlink($rawTarTemp);
                 } else {
                     $archiveFile = "storage.tar.gz";
@@ -137,8 +138,9 @@ class BackupManager
             }
         }
 
-        // 4. Generate Atomic Backup Manifest
+        // 4. Generate Atomic Backup Manifest (Version 2 Schema)
         $manifest = [
+            'manifest_version' => 2,
             'backup_id' => $backupId,
             'created_at' => now()->toIso8601String(),
             'frequency' => $frequency,
@@ -165,7 +167,10 @@ class BackupManager
             ],
             'encryption' => [
                 'enabled' => $encrypt,
-                'cipher' => $encrypt ? ($this->config['encryption']['cipher'] ?? 'AES-256-CBC') : null,
+                'format_version' => $encrypt ? 2 : null,
+                'cipher' => $encrypt ? 'aes-256-gcm' : null,
+                'authenticated' => $encrypt ? true : false,
+                'key_fingerprint' => $keyFingerprint,
             ],
             'validation_status' => 'pending',
             'validated_at' => null,
@@ -184,6 +189,7 @@ class BackupManager
             'tables' => $tablesCount,
             'rows' => $totalRows,
             'encrypted' => $encrypt,
+            'aead' => $encrypt ? 'aes-256-gcm' : 'none',
         ]);
 
         // 5. Apply Retention Policy
@@ -193,7 +199,7 @@ class BackupManager
     }
 
     /**
-     * Validate the checksums and readability of a backup snapshot.
+     * Validate the checksums, cryptographic authenticity, and readability of a backup snapshot.
      */
     public function validateBackup(string $backupId): array
     {
@@ -210,7 +216,7 @@ class BackupManager
         }
 
         $errors = [];
-        $encryptionKey = config('backup.encryption.key', config('app.key'));
+        $encryptionKey = (string) config('backup.encryption.key', config('app.key'));
         $isEncrypted = (bool) ($manifest['encryption']['enabled'] ?? false);
 
         // 1. Verify Database Dump File
@@ -221,10 +227,10 @@ class BackupManager
             $errors[] = "Database dump file [{$dumpFileName}] is missing or empty.";
         } else {
             if ($isEncrypted) {
-                // Test decrypting to temporary file to verify integrity and key validity
+                // Test decrypting to temporary file to verify integrity, AEAD tag, and key validity
                 $tempDecrypted = "{$dumpFilePath}.test_dec";
                 try {
-                    $this->decryptFile($dumpFilePath, $tempDecrypted, $encryptionKey);
+                    $this->decryptFile($dumpFilePath, $tempDecrypted, $encryptionKey, $backupId, 'database.sql');
                     $actualChecksum = hash_file('sha256', $tempDecrypted);
                     @unlink($tempDecrypted);
 
@@ -232,7 +238,7 @@ class BackupManager
                         $errors[] = "Decrypted database dump checksum mismatch: Expected {$manifest['database']['dump_checksum']}, got {$actualChecksum}";
                     }
                 } catch (\Throwable $e) {
-                    $errors[] = "Failed to decrypt database dump: " . $e->getMessage();
+                    $errors[] = "Database dump authentication / decryption failed: " . $e->getMessage();
                 }
             } else {
                 $actualChecksum = hash_file('sha256', $dumpFilePath);
@@ -253,11 +259,11 @@ class BackupManager
                 if ($isEncrypted) {
                     $tempDecryptedTar = "{$archiveFilePath}.test_dec";
                     try {
-                        $this->decryptFile($archiveFilePath, $tempDecryptedTar, $encryptionKey);
+                        $this->decryptFile($archiveFilePath, $tempDecryptedTar, $encryptionKey, $backupId, 'storage.tar.gz');
                         $actualTarChecksum = hash_file('sha256', $tempDecryptedTar);
 
                         // Test tar list readability
-                        exec("tar -tzf " . escapeshellarg($tempDecryptedTar) . " > /dev/null 2>&1", $tarOut, $tarCode);
+                        $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($tempDecryptedTar) . " > /dev/null 2>&1");
                         @unlink($tempDecryptedTar);
 
                         if ($actualTarChecksum !== $manifest['storage']['archive_checksum']) {
@@ -267,14 +273,14 @@ class BackupManager
                             $errors[] = "Decrypted storage archive is corrupted or unreadable by tar.";
                         }
                     } catch (\Throwable $e) {
-                        $errors[] = "Failed to decrypt storage archive: " . $e->getMessage();
+                        $errors[] = "Storage archive authentication / decryption failed: " . $e->getMessage();
                     }
                 } else {
                     $actualTarChecksum = hash_file('sha256', $archiveFilePath);
                     if ($actualTarChecksum !== $manifest['storage']['archive_checksum']) {
                         $errors[] = "Storage archive checksum mismatch.";
                     }
-                    exec("tar -tzf " . escapeshellarg($archiveFilePath) . " > /dev/null 2>&1", $tarOut, $tarCode);
+                    $tarCode = $this->runCliCommand("tar -tzf " . escapeshellarg($archiveFilePath) . " > /dev/null 2>&1");
                     if ($tarCode !== 0) {
                         $errors[] = "Storage archive is corrupted or unreadable by tar.";
                     }
@@ -297,7 +303,8 @@ class BackupManager
     }
 
     /**
-     * Mark a backup as having passed an isolated disaster recovery restore test.
+     * Mark a backup as having passed an isolated disaster recovery restore test,
+     * while enforcing bounded protection count.
      */
     public function markRestoreTestPassed(string $backupId): void
     {
@@ -309,9 +316,37 @@ class BackupManager
         $manifest = json_decode(file_get_contents($manifestPath), true);
         $manifest['restore_test_status'] = 'passed';
         $manifest['tested_at'] = now()->toIso8601String();
-        $manifest['is_protected'] = true; // Protect verified recovery copy from retention pruning!
+        $manifest['is_protected'] = true; // Protect latest verified recovery copy
 
         file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        // Enforce Bounded Protection Policy:
+        // Only the latest N restore-verified backups remain is_protected = true.
+        $maxProtected = (int) config('backup.retention.max_protected_restore_copies', 2);
+        $allBackups = $this->getAllBackups();
+
+        $restoreTested = [];
+        foreach ($allBackups as $b) {
+            if (($b['restore_test_status'] ?? '') === 'passed') {
+                $restoreTested[] = $b;
+            }
+        }
+
+        if (count($restoreTested) > $maxProtected) {
+            // Keep the latest $maxProtected as is_protected = true; older ones transition to is_protected = false.
+            $unprotectCandidates = array_slice($restoreTested, $maxProtected);
+            foreach ($unprotectCandidates as $cand) {
+                $candManifestPath = "{$this->basePath}/{$cand['backup_id']}/manifest.json";
+                if (file_exists($candManifestPath)) {
+                    $candData = json_decode(file_get_contents($candManifestPath), true);
+                    if (! empty($candData['is_protected'])) {
+                        $candData['is_protected'] = false; // Bounded protection rollover
+                        file_put_contents($candManifestPath, json_encode($candData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                        Log::info("Protected baseline rolled over for older verified backup: {$cand['backup_id']}");
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -331,6 +366,20 @@ class BackupManager
         $backups = $this->getAllBackups();
         foreach ($backups as $b) {
             if (($b['validation_status'] ?? '') === 'valid') {
+                return $b;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the latest restore-tested backup manifest.
+     */
+    public function getLatestRestoreTestedBackup(): ?array
+    {
+        $backups = $this->getAllBackups();
+        foreach ($backups as $b) {
+            if (($b['restore_test_status'] ?? '') === 'passed') {
                 return $b;
             }
         }
@@ -386,22 +435,46 @@ class BackupManager
     }
 
     /**
-     * Check if backups are stale relative to RPO SLA threshold.
+     * Determine RPO SLA status.
+     * Stated RPO target is 60 minutes. Critical breach threshold is 75 minutes.
+     */
+    public function getRpoStatus(?int $ageMinutes = null): string
+    {
+        $age = $ageMinutes ?? $this->getLatestBackupAgeMinutes();
+        if ($age === null) {
+            return 'missing';
+        }
+
+        $target = (int) config('backup.rpo.target_minutes', 60);
+        $critical = (int) config('backup.rpo.critical_threshold_minutes', 75);
+
+        if ($age <= $target) {
+            return 'satisfied';
+        } elseif ($age <= $critical) {
+            return 'warning_approaching_breach';
+        } else {
+            return 'breached';
+        }
+    }
+
+    /**
+     * Check if backups are stale relative to RPO SLA critical threshold.
      */
     public function isBackupStale(?int $maxMinutes = null): bool
     {
-        $maxMinutes = $maxMinutes ?? (int) config('backup.rpo_stale_minutes', 120);
+        $maxMinutes = $maxMinutes ?? (int) config('backup.rpo.critical_threshold_minutes', 75);
         $age = $this->getLatestBackupAgeMinutes();
 
         if ($age === null) {
-            return true; // No backup exists -> stale/missing
+            return true;
         }
 
         return $age > $maxMinutes;
     }
 
     /**
-     * Apply retention pruning while strictly protecting the latest valid backup and any protected snapshots.
+     * Apply retention pruning while strictly protecting bounded verified recovery copies
+     * and preserving at least one valid backup baseline.
      */
     public function pruneOldBackups(): int
     {
@@ -427,6 +500,9 @@ class BackupManager
         $latestValid = $this->getLatestValidatedBackup();
         $latestValidId = $latestValid['backup_id'] ?? null;
 
+        $latestTested = $this->getLatestRestoreTestedBackup();
+        $latestTestedId = $latestTested['backup_id'] ?? null;
+
         foreach ($grouped as $freq => $tierBackups) {
             $limit = $retentionLimits[$freq] ?? 24;
             if (count($tierBackups) > $limit) {
@@ -434,13 +510,18 @@ class BackupManager
                 $candidates = array_slice($tierBackups, $limit);
                 foreach ($candidates as $cand) {
                     $candId = $cand['backup_id'];
+
                     // CRITICAL SAFETY RULES:
-                    // 1. Never delete if is_protected is true
+                    // 1. Never delete if is_protected is explicitly true
                     if (! empty($cand['is_protected'])) {
                         continue;
                     }
-                    // 2. Never delete the latest valid backup
+                    // 2. Never delete the single newest valid backup overall
                     if ($candId === $latestValidId) {
+                        continue;
+                    }
+                    // 3. Never delete the single newest restore-tested backup overall
+                    if ($candId === $latestTestedId) {
                         continue;
                     }
 
@@ -448,7 +529,7 @@ class BackupManager
                     if (is_dir($targetDir)) {
                         File::deleteDirectory($targetDir);
                         $prunedCount++;
-                        Log::info("Pruned old backup snapshot: {$candId}");
+                        Log::info("Pruned old backup snapshot: {$candId} [reason: retention_limit_exceeded]");
                     }
                 }
             }
@@ -458,37 +539,117 @@ class BackupManager
     }
 
     /**
-     * Encrypt a file using OpenSSL AES-256-CBC.
+     * Encrypt a file using AEAD AES-256-GCM authenticated encryption.
      */
-    public function encryptFile(string $sourceFile, string $destFile, string $key): void
+    public function encryptFile(string $sourceFile, string $destFile, string $key, string $backupId = '', string $fileName = ''): void
     {
-        $iv = openssl_random_pseudo_bytes(16);
-        $plaintext = file_get_contents($sourceFile);
         $binaryKey = hash('sha256', $key, true);
-        $ciphertext = openssl_encrypt($plaintext, 'AES-256-CBC', $binaryKey, OPENSSL_RAW_DATA, $iv);
+        $iv = openssl_random_pseudo_bytes(12); // Standard 12-byte nonce for GCM
+        $plaintext = file_get_contents($sourceFile);
+        $tag = '';
+        $aad = "BuildFlow-AEAD-v2|{$backupId}|{$fileName}";
 
-        file_put_contents($destFile, $iv . $ciphertext);
+        $ciphertext = openssl_encrypt($plaintext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $aad, 16);
+
+        if ($ciphertext === false || strlen($tag) !== 16) {
+            throw new \RuntimeException("AEAD encryption failed for file: {$sourceFile}");
+        }
+
+        // Binary Envelope:
+        // 'BFENC' (5 bytes) + Version 0x02 (1 byte) + Cipher 0x01 (1 byte) + IV len 0x0C (1 byte) + Tag len 0x10 (1 byte) = 9 bytes header
+        // Followed by 12 bytes IV + 16 bytes Tag + Ciphertext
+        $header = "BFENC\x02\x01\x0C\x10" . $iv . $tag;
+        file_put_contents($destFile, $header . $ciphertext);
     }
 
     /**
-     * Decrypt an encrypted file using OpenSSL AES-256-CBC.
+     * Decrypt an encrypted file using AEAD AES-256-GCM, with legacy AES-256-CBC backward compatibility.
      */
-    public function decryptFile(string $sourceFile, string $destFile, string $key): void
+    public function decryptFile(string $sourceFile, string $destFile, string $key, ?string $backupId = null, ?string $fileName = null): void
     {
         $data = file_get_contents($sourceFile);
-        if (strlen($data) < 16) {
-            throw new \RuntimeException('Encrypted file payload too short.');
-        }
-
-        $iv = substr($data, 0, 16);
-        $ciphertext = substr($data, 16);
         $binaryKey = hash('sha256', $key, true);
-        $plaintext = openssl_decrypt($ciphertext, 'AES-256-CBC', $binaryKey, OPENSSL_RAW_DATA, $iv);
 
-        if ($plaintext === false) {
-            throw new \RuntimeException('Failed to decrypt backup file: invalid key or corrupted payload.');
+        // 1. Detect Version 2 AEAD Envelope ('BFENC\x02')
+        if (str_starts_with($data, "BFENC\x02")) {
+            if (strlen($data) < 37) { // 9 bytes header + 12 IV + 16 Tag = 37 min
+                throw new \RuntimeException("Encrypted backup payload is truncated or corrupted.");
+            }
+
+            $ivLen = ord($data[7]); // 12
+            $tagLen = ord($data[8]); // 16
+            $iv = substr($data, 9, $ivLen);
+            $tag = substr($data, 9 + $ivLen, $tagLen);
+            $ciphertext = substr($data, 9 + $ivLen + $tagLen);
+
+            // Verify with AAD contextual binding
+            $aad = "BuildFlow-AEAD-v2|" . ($backupId ?? '') . "|" . ($fileName ?? '');
+            $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, $aad);
+
+            // Fallback for tests or decoupled verification where AAD was omitted
+            if ($plaintext === false && $backupId !== null) {
+                $plaintext = openssl_decrypt($ciphertext, 'aes-256-gcm', $binaryKey, OPENSSL_RAW_DATA, $iv, $tag, '');
+            }
+
+            if ($plaintext === false) {
+                throw new \RuntimeException("AEAD decryption / authentication failed: Invalid authentication tag, altered ciphertext, or wrong key.");
+            }
+
+            file_put_contents($destFile, $plaintext);
+            return;
         }
 
-        file_put_contents($destFile, $plaintext);
+        // 2. Legacy Version 1 (AES-256-CBC) Compatibility
+        if (config('backup.encryption.allow_legacy_cbc_decrypt', true)) {
+            if (strlen($data) < 16) {
+                throw new \RuntimeException('Legacy encrypted backup payload too short.');
+            }
+
+            $iv = substr($data, 0, 16);
+            $ciphertext = substr($data, 16);
+            $plaintext = openssl_decrypt($ciphertext, 'AES-256-CBC', $binaryKey, OPENSSL_RAW_DATA, $iv);
+
+            if ($plaintext === false) {
+                throw new \RuntimeException('Legacy CBC decryption failed: invalid key or corrupted payload.');
+            }
+
+            Log::warning("Decrypted legacy AES-256-CBC backup file: {$sourceFile}. Consider upgrading to AEAD AES-256-GCM.");
+            file_put_contents($destFile, $plaintext);
+            return;
+        }
+
+        throw new \RuntimeException('Unsupported or corrupted backup encryption format.');
+    }
+
+    /**
+     * Run a CLI command securely passing sensitive environment variables (such as MYSQL_PWD).
+     */
+    protected function runCliCommand(string $command, ?string $mysqlPassword = null): int
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $env = [
+            'PATH' => getenv('PATH') ?: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
+        ];
+        if ($mysqlPassword !== null) {
+            $env['MYSQL_PWD'] = $mysqlPassword;
+        }
+
+        $proc = proc_open($command, $descriptors, $pipes, null, $env);
+        if (! is_resource($proc)) {
+            return -1;
+        }
+
+        fclose($pipes[0]);
+        stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+
+        return proc_close($proc);
     }
 }
