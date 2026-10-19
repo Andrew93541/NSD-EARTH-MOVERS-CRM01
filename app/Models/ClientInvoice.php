@@ -59,6 +59,11 @@ class ClientInvoice extends Model
         return $this->hasMany(RetentionClaimInvoiceItem::class);
     }
 
+    public function paymentAllocations(): HasMany
+    {
+        return $this->hasMany(InvoicePaymentAllocation::class, 'client_invoice_id');
+    }
+
     public function balanceDue(): float
     {
         return (float) ($this->total_amount - $this->paid_amount);

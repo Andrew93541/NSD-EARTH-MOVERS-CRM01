@@ -22,6 +22,11 @@ class Role extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'company_user', 'role_id', 'user_id');
+    }
+
     public function hasPermission(string $permission): bool
     {
         if ($this->slug === 'owner' || $this->slug === 'admin') {

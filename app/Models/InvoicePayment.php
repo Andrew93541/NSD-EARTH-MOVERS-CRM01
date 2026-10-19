@@ -27,4 +27,19 @@ class InvoicePayment extends Model
     {
         return $this->belongsTo(User::class, 'recorded_by');
     }
+
+    public function allocations()
+    {
+        return $this->hasMany(InvoicePaymentAllocation::class, 'invoice_payment_id');
+    }
+
+    public function allocatedAmount(): float
+    {
+        return (float) $this->allocations()->sum('amount');
+    }
+
+    public function unallocatedBalance(): float
+    {
+        return max(0.0, (float) $this->amount - $this->allocatedAmount());
+    }
 }

@@ -96,23 +96,68 @@ class AttendanceController extends Controller
             ]);
         }
 
+        $date = Carbon::parse($validated['date'])->toDateString();
+
         foreach ($validated['attendance'] as $employeeId => $data) {
-            DailyAttendance::updateOrCreate(
-                [
+            $existing = DailyAttendance::where('company_id', $site->company_id)
+                ->where('employee_id', $employeeId)
+                ->whereDate('attendance_date', $date)
+                ->first();
+
+            // Guard: approved attendance cannot be ordinarily edited
+            if ($existing && $existing->approval_status === 'approved') {
+                $hasChanged = ($existing->status !== $data['status']) ||
+                    (abs((float)$existing->overtime_hours - (float)($data['overtime_hours'] ?? 0)) > 0.01);
+
+                if ($hasChanged) {
+                    $empName = $existing->employee?->full_name ?: "Worker #{$employeeId}";
+                    $msg = "Attendance for {$empName} on {$date} has already been approved and cannot be ordinarily modified. Please submit an attendance correction request.";
+                    if ($request->wantsJson() || $request->ajax()) {
+                        return response()->json(['success' => false, 'message' => $msg], 422);
+                    }
+                    return back()->withInput()->withErrors(['attendance' => $msg]);
+                }
+            }
+
+            $workflowAction = $request->input('action', 'approve');
+            $statusToSet = 'approved';
+            $approvedBy = Auth::id();
+            $approvedAt = now();
+            $submittedAt = now();
+
+            if ($workflowAction === 'save_draft') {
+                $statusToSet = 'draft';
+                $approvedBy = null;
+                $approvedAt = null;
+            } elseif ($workflowAction === 'submit') {
+                $statusToSet = 'pending_approval';
+                $approvedBy = null;
+                $approvedAt = null;
+            }
+
+            $recordAttributes = [
+                'site_id' => $site->id,
+                'project_id' => $site->project_id,
+                'status' => $data['status'],
+                'worked_hours' => $data['status'] === 'present' ? 8.00 : ($data['status'] === 'half_day' ? 4.00 : 0.00),
+                'overtime_hours' => $data['overtime_hours'] ?? 0.00,
+                'is_overtime_approved' => ($data['overtime_hours'] ?? 0) > 0,
+                'overtime_approved_by' => Auth::id(),
+                'approval_status' => $statusToSet,
+                'submitted_at' => $submittedAt,
+                'approved_by' => $approvedBy,
+                'approved_at' => $approvedAt,
+            ];
+
+            if ($existing) {
+                $existing->update($recordAttributes);
+            } else {
+                DailyAttendance::create(array_merge($recordAttributes, [
                     'company_id' => $site->company_id,
                     'employee_id' => $employeeId,
                     'attendance_date' => $date,
-                ],
-                [
-                    'site_id' => $site->id,
-                    'project_id' => $site->project_id,
-                    'status' => $data['status'],
-                    'worked_hours' => $data['status'] === 'present' ? 8.00 : ($data['status'] === 'half_day' ? 4.00 : 0.00),
-                    'overtime_hours' => $data['overtime_hours'] ?? 0.00,
-                    'is_overtime_approved' => ($data['overtime_hours'] ?? 0) > 0,
-                    'overtime_approved_by' => Auth::id(),
-                ]
-            );
+                ]));
+            }
         }
 
         $pmId = $site->project?->manager_id;
@@ -147,5 +192,225 @@ class AttendanceController extends Controller
 
         return redirect()->route('attendance.muster', ['site_id' => $site->id, 'date' => $date])
             ->with('success', 'Muster roll attendance submitted and synchronized with payroll.');
+    }
+
+    public function approve(Request $request): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validate([
+            'attendance_ids' => 'required|array',
+            'attendance_ids.*' => 'exists:daily_attendance,id',
+        ]);
+
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $approvedCount = 0;
+
+        foreach ($validated['attendance_ids'] as $id) {
+            $attendance = DailyAttendance::with(['site', 'employee'])->findOrFail($id);
+
+            // Server-side relationship enforcement:
+            // Site Supervisor is primary approver for workers at their authorized site.
+            // Office staff without site assignments are approved by HR Officer or Admin.
+            if ($attendance->site_id) {
+                $isSiteSupervisor = (int) $attendance->site?->supervisor_id === (int) $user->id;
+                $isGlobalAuth = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager']);
+                if (! $isSiteSupervisor && ! $isGlobalAuth) {
+                    abort(403, "Unauthorized. You are not the designated Site Supervisor for {$attendance->site?->name}.");
+                }
+            } else {
+                // Office staff approval route
+                $isHRorAdmin = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'hr_officer']);
+                if (! $isHRorAdmin) {
+                    abort(403, 'Unauthorized. Office employee attendance must be approved by HR or Admin.');
+                }
+            }
+
+            $attendance->update([
+                'approval_status' => 'approved',
+                'approved_by' => $user->id,
+                'approved_at' => now(),
+                'rejection_reason' => null,
+            ]);
+            $approvedCount++;
+        }
+
+        $msg = "{$approvedCount} attendance record(s) approved successfully.";
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    public function reject(Request $request): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validate([
+            'attendance_ids' => 'required|array',
+            'attendance_ids.*' => 'exists:daily_attendance,id',
+            'rejection_reason' => 'required|string|min:5|max:500',
+        ]);
+
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $rejectedCount = 0;
+
+        foreach ($validated['attendance_ids'] as $id) {
+            $attendance = DailyAttendance::with(['site'])->findOrFail($id);
+
+            if ($attendance->site_id) {
+                $isSiteSupervisor = (int) $attendance->site?->supervisor_id === (int) $user->id;
+                $isGlobalAuth = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager']);
+                if (! $isSiteSupervisor && ! $isGlobalAuth) {
+                    abort(403, "Unauthorized. You are not the designated Site Supervisor for this site.");
+                }
+            } else {
+                $isHRorAdmin = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'hr_officer']);
+                if (! $isHRorAdmin) {
+                    abort(403, 'Unauthorized. Office employee attendance rejection requires HR or Admin authorization.');
+                }
+            }
+
+            $attendance->update([
+                'approval_status' => 'rejected',
+                'rejection_reason' => $validated['rejection_reason'],
+                'approved_by' => null,
+                'approved_at' => null,
+            ]);
+            $rejectedCount++;
+        }
+
+        $msg = "{$rejectedCount} attendance record(s) rejected.";
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    public function requestCorrection(Request $request): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validate([
+            'daily_attendance_id' => 'required|exists:daily_attendance,id',
+            'proposed_status' => 'required|in:present,half_day,absent,paid_leave',
+            'proposed_worked_hours' => 'nullable|numeric|min:0|max:24',
+            'proposed_overtime_hours' => 'nullable|numeric|min:0|max:12',
+            'reason' => 'required|string|min:5|max:1000',
+        ]);
+
+        $attendance = DailyAttendance::findOrFail($validated['daily_attendance_id']);
+
+        // Check if covered by disbursed payroll period
+        $isPeriodDisbursed = \App\Models\PayrollPeriod::where('status', 'disbursed')
+            ->whereDate('start_date', '<=', $attendance->attendance_date)
+            ->whereDate('end_date', '>=', $attendance->attendance_date)
+            ->exists();
+
+        if ($isPeriodDisbursed) {
+            $msg = "Cannot submit correction: the payroll period covering {$attendance->attendance_date} has already been finalized and disbursed.";
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => $msg], 422);
+            }
+            return back()->withInput()->withErrors(['reason' => $msg]);
+        }
+
+        $hours = $validated['proposed_worked_hours'] ?? ($validated['proposed_status'] === 'present' ? 8.00 : ($validated['proposed_status'] === 'half_day' ? 4.00 : 0.00));
+
+        $correction = \App\Models\DailyAttendanceCorrection::create([
+            'company_id' => $attendance->company_id,
+            'daily_attendance_id' => $attendance->id,
+            'requested_by' => Auth::id(),
+            'previous_status' => $attendance->status,
+            'proposed_status' => $validated['proposed_status'],
+            'previous_worked_hours' => $attendance->worked_hours,
+            'proposed_worked_hours' => $hours,
+            'previous_overtime_hours' => $attendance->overtime_hours,
+            'proposed_overtime_hours' => $validated['proposed_overtime_hours'] ?? 0.00,
+            'reason' => $validated['reason'],
+            'status' => 'pending',
+        ]);
+
+        $msg = 'Attendance correction request submitted for supervisor / HR reapproval.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg, 'correction' => $correction]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    public function approveCorrection(Request $request, \App\Models\DailyAttendanceCorrection $correction): JsonResponse|RedirectResponse
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+
+        $attendance = $correction->attendance;
+        if ($attendance && $attendance->site_id) {
+            $isSupervisor = (int) $attendance->site?->supervisor_id === (int) $user->id;
+            $isGlobal = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager']);
+            if (! $isSupervisor && ! $isGlobal) {
+                abort(403, 'Unauthorized to approve attendance correction for this site.');
+            }
+        } else {
+            $isHR = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'hr_officer']);
+            if (! $isHR) {
+                abort(403, 'Unauthorized to approve office attendance correction.');
+            }
+        }
+
+        // Apply correction to daily attendance record
+        $attendance->update([
+            'status' => $correction->proposed_status,
+            'worked_hours' => $correction->proposed_worked_hours,
+            'overtime_hours' => $correction->proposed_overtime_hours,
+            'approval_status' => 'approved',
+            'approved_by' => $user->id,
+            'approved_at' => now(),
+        ]);
+
+        $correction->update([
+            'status' => 'approved',
+            'actioned_by' => $user->id,
+            'actioned_at' => now(),
+            'action_notes' => $request->input('action_notes', 'Correction approved and applied.'),
+        ]);
+
+        $msg = 'Attendance correction approved and applied.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+        return back()->with('success', $msg);
+    }
+
+    public function rejectCorrection(Request $request, \App\Models\DailyAttendanceCorrection $correction): JsonResponse|RedirectResponse
+    {
+        $validated = $request->validate([
+            'reason' => 'required|string|min:5|max:500',
+        ]);
+
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+
+        $attendance = $correction->attendance;
+        if ($attendance && $attendance->site_id) {
+            $isSupervisor = (int) $attendance->site?->supervisor_id === (int) $user->id;
+            $isGlobal = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager']);
+            if (! $isSupervisor && ! $isGlobal) {
+                abort(403, 'Unauthorized to reject attendance correction for this site.');
+            }
+        } else {
+            $isHR = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'hr_officer']);
+            if (! $isHR) {
+                abort(403, 'Unauthorized to reject office attendance correction.');
+            }
+        }
+
+        $correction->update([
+            'status' => 'rejected',
+            'actioned_by' => $user->id,
+            'actioned_at' => now(),
+            'action_notes' => $validated['reason'],
+        ]);
+
+        $msg = 'Attendance correction request rejected.';
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['success' => true, 'message' => $msg]);
+        }
+        return back()->with('success', $msg);
     }
 }

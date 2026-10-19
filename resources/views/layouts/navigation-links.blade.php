@@ -24,6 +24,8 @@
     $canWorkOrders = $u && ($u->hasPermission('*') || $u->hasPermission('work_orders.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'accountant', 'procurement_officer']));
     $canMB = $u && ($u->hasPermission('*') || $u->hasPermission('measurement_book.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'site_supervisor', 'accountant']));
     $canSubconBills = $u && ($u->hasPermission('*') || $u->hasPermission('subcontractor_bills.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'accountant']));
+    $canCategories = $u && ($u->hasPermission('*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager']));
+    $canTeam = $u && ($u->hasPermission('*') || in_array($u->currentRole()?->slug, ['owner', 'admin']));
 @endphp
 
 <nav class="space-y-6 text-xs" aria-label="Main Navigation">
@@ -69,6 +71,14 @@
                class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('sites.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                 <span>Site Operations</span>
+            </a>
+            @endif
+
+            @if($canCategories)
+            <a href="{{ route('construction-categories.index') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('construction-categories.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                <span>Work Categories</span>
             </a>
             @endif
         </div>
@@ -249,9 +259,19 @@
 
             @if($canAccounting)
             <a href="{{ route('accounting.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('accounting.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('accounting.index', 'accounting.journals*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                 <span>General Ledger & Books</span>
+            </a>
+            <a href="{{ route('accounting.profit-loss') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('accounting.profit-loss') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                <span>Profit & Loss Statement</span>
+            </a>
+            <a href="{{ route('accounting.balance-sheet') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('accounting.balance-sheet') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
+                <span>Balance Sheet</span>
             </a>
             @endif
         </div>
@@ -275,6 +295,14 @@
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
                 <span>Notification Log</span>
             </a>
+
+            @if($canTeam)
+            <a href="{{ route('team.index') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('team.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                <span>Team & Access Control</span>
+            </a>
+            @endif
 
             <a href="{{ route('company.profile') }}"
                class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('company.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">

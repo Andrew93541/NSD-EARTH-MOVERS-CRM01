@@ -20,6 +20,8 @@ class DailyAttendance extends Model
         'worked_hours' => 'decimal:2',
         'overtime_hours' => 'decimal:2',
         'is_overtime_approved' => 'boolean',
+        'submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
     ];
 
     public function employee(): BelongsTo
@@ -40,5 +42,20 @@ class DailyAttendance extends Model
     public function overtimeApprover(): BelongsTo
     {
         return $this->belongsTo(User::class, 'overtime_approved_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function corrections()
+    {
+        return $this->hasMany(DailyAttendanceCorrection::class, 'daily_attendance_id');
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->approval_status === 'approved';
     }
 }

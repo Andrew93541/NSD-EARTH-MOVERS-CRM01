@@ -53,6 +53,11 @@ class Employee extends Model
         return $this->hasMany(PayrollRecord::class);
     }
 
+    public function salaryStructures(): HasMany
+    {
+        return $this->hasMany(EmployeeSalaryStructure::class)->orderByDesc('effective_from');
+    }
+
     public function getFullNameAttribute(): string
     {
         return trim($this->first_name . ' ' . ($this->last_name ?? ''));

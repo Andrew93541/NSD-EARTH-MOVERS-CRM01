@@ -265,4 +265,157 @@ class AccountingController extends Controller
 
         return view('accounting.trial-balance', compact('rows', 'totalDebits', 'totalCredits'));
     }
+
+    public function profitAndLoss(Request $request): View
+    {
+        $this->authorizeAccounting();
+
+        $startDate = $request->input('start_date', Carbon::now()->startOfYear()->toDateString());
+        $endDate = $request->input('end_date', Carbon::now()->endOfYear()->toDateString());
+
+        // Fetch revenues (credit balance)
+        $revenueAccounts = Account::where('account_type', 'revenue')
+            ->with(['journalLines' => function ($q) use ($startDate, $endDate) {
+                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate) {
+                    $je->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
+                });
+            }])
+            ->orderBy('code')
+            ->get();
+
+        $revenueRows = [];
+        $totalRevenue = 0.00;
+        foreach ($revenueAccounts as $acc) {
+            $net = (float) $acc->journalLines->sum('credit') - (float) $acc->journalLines->sum('debit');
+            if ($net != 0) {
+                $revenueRows[] = ['account' => $acc, 'amount' => $net];
+                $totalRevenue += $net;
+            }
+        }
+
+        // Fetch direct and indirect expenses (debit balance)
+        $expenseAccounts = Account::where('account_type', 'expense')
+            ->with(['journalLines' => function ($q) use ($startDate, $endDate) {
+                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate) {
+                    $je->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
+                });
+            }])
+            ->orderBy('code')
+            ->get();
+
+        $expenseRows = [];
+        $totalExpenses = 0.00;
+        foreach ($expenseAccounts as $acc) {
+            $net = (float) $acc->journalLines->sum('debit') - (float) $acc->journalLines->sum('credit');
+            if ($net != 0) {
+                $expenseRows[] = ['account' => $acc, 'amount' => $net];
+                $totalExpenses += $net;
+            }
+        }
+
+        $netProfit = $totalRevenue - $totalExpenses;
+
+        return view('accounting.profit-loss', compact(
+            'revenueRows',
+            'expenseRows',
+            'totalRevenue',
+            'totalExpenses',
+            'netProfit',
+            'startDate',
+            'endDate'
+        ));
+    }
+
+    public function balanceSheet(Request $request): View
+    {
+        $this->authorizeAccounting();
+
+        $asOfDate = $request->input('as_of_date', Carbon::today()->toDateString());
+
+        // Assets (debit balance)
+        $assetAccounts = Account::where('account_type', 'asset')
+            ->with(['journalLines' => function ($q) use ($asOfDate) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
+                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+                });
+            }])
+            ->orderBy('code')
+            ->get();
+
+        $assetRows = [];
+        $totalAssets = 0.00;
+        foreach ($assetAccounts as $acc) {
+            $net = (float) $acc->journalLines->sum('debit') - (float) $acc->journalLines->sum('credit');
+            if ($net != 0) {
+                $assetRows[] = ['account' => $acc, 'amount' => $net];
+                $totalAssets += $net;
+            }
+        }
+
+        // Liabilities (credit balance)
+        $liabilityAccounts = Account::where('account_type', 'liability')
+            ->with(['journalLines' => function ($q) use ($asOfDate) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
+                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+                });
+            }])
+            ->orderBy('code')
+            ->get();
+
+        $liabilityRows = [];
+        $totalLiabilities = 0.00;
+        foreach ($liabilityAccounts as $acc) {
+            $net = (float) $acc->journalLines->sum('credit') - (float) $acc->journalLines->sum('debit');
+            if ($net != 0) {
+                $liabilityRows[] = ['account' => $acc, 'amount' => $net];
+                $totalLiabilities += $net;
+            }
+        }
+
+        // Equity accounts
+        $equityAccounts = Account::where('account_type', 'equity')
+            ->with(['journalLines' => function ($q) use ($asOfDate) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
+                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+                });
+            }])
+            ->orderBy('code')
+            ->get();
+
+        $equityRows = [];
+        $totalEquity = 0.00;
+        foreach ($equityAccounts as $acc) {
+            $net = (float) $acc->journalLines->sum('credit') - (float) $acc->journalLines->sum('debit');
+            if ($net != 0) {
+                $equityRows[] = ['account' => $acc, 'amount' => $net];
+                $totalEquity += $net;
+            }
+        }
+
+        // Calculate Retained Earnings from cumulative P&L
+        $allRev = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('account_type', 'revenue'))
+            ->whereHas('journalEntry', fn ($q) => $q->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
+            ->sum(DB::raw('credit - debit'));
+
+        $allExp = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('account_type', 'expense'))
+            ->whereHas('journalEntry', fn ($q) => $q->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
+            ->sum(DB::raw('debit - credit'));
+
+        $cumulativeRetainedEarnings = $allRev - $allExp;
+        $totalEquityWithRetained = $totalEquity + $cumulativeRetainedEarnings;
+        $totalLiabilitiesAndEquity = $totalLiabilities + $totalEquityWithRetained;
+
+        return view('accounting.balance-sheet', compact(
+            'assetRows',
+            'liabilityRows',
+            'equityRows',
+            'totalAssets',
+            'totalLiabilities',
+            'totalEquity',
+            'cumulativeRetainedEarnings',
+            'totalEquityWithRetained',
+            'totalLiabilitiesAndEquity',
+            'asOfDate'
+        ));
+    }
 }

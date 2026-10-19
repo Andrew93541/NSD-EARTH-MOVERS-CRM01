@@ -148,7 +148,8 @@ class BillingController extends Controller
                 ]);
             }
 
-            InvoicePayment::create([
+            $payment = InvoicePayment::create([
+                'company_id' => $lockedInvoice->company_id,
                 'client_invoice_id' => $lockedInvoice->id,
                 'receipt_number' => 'RCP-' . date('Y') . '-' . strtoupper(Str::random(5)),
                 'payment_date' => $validated['payment_date'],
@@ -157,6 +158,14 @@ class BillingController extends Controller
                 'reference_number' => $validated['reference_number'] ?? null,
                 'notes' => $validated['notes'] ?? null,
                 'recorded_by' => Auth::id(),
+            ]);
+
+            \App\Models\InvoicePaymentAllocation::create([
+                'company_id' => $lockedInvoice->company_id,
+                'invoice_payment_id' => $payment->id,
+                'client_invoice_id' => $lockedInvoice->id,
+                'amount' => $validated['amount'],
+                'notes' => 'Direct payment allocation for RA bill ' . $lockedInvoice->invoice_number,
             ]);
 
             $newPaid = $lockedInvoice->paid_amount + $validated['amount'];
@@ -180,6 +189,66 @@ class BillingController extends Controller
             }
 
             return redirect()->route('billing.show', $lockedInvoice)->with('success', 'Client payment receipt recorded and balance updated.');
+        });
+    }
+
+    public function allocateReceipt(Request $request, InvoicePayment $payment): RedirectResponse|JsonResponse
+    {
+        $this->authorizeBilling();
+
+        $validated = $request->validate([
+            'allocations' => 'required|array|min:1',
+            'allocations.*.invoice_id' => 'required|exists:client_invoices,id',
+            'allocations.*.amount' => 'required|numeric|min:0.01',
+        ]);
+
+        return DB::transaction(function () use ($validated, $payment, $request) {
+            $lockedPayment = InvoicePayment::where('id', $payment->id)->lockForUpdate()->firstOrFail();
+            $unallocated = $lockedPayment->unallocatedBalance();
+
+            $totalRequestedAllocation = array_sum(array_column($validated['allocations'], 'amount'));
+            if ($totalRequestedAllocation > $unallocated + 0.001) {
+                $msg = 'Total allocation amount (₹' . number_format($totalRequestedAllocation, 2) . ') exceeds available unallocated receipt balance of ₹' . number_format($unallocated, 2);
+                if ($request->wantsJson()) {
+                    return response()->json(['success' => false, 'message' => $msg], 422);
+                }
+                return back()->withInput()->withErrors(['allocations' => $msg]);
+            }
+
+            foreach ($validated['allocations'] as $alloc) {
+                $lockedInvoice = ClientInvoice::where('id', $alloc['invoice_id'])->lockForUpdate()->firstOrFail();
+                $due = $lockedInvoice->balanceDue();
+
+                if ($alloc['amount'] > $due + 0.001) {
+                    $msg = "Allocation of ₹{$alloc['amount']} exceeds balance due of ₹{$due} for invoice {$lockedInvoice->invoice_number}";
+                    if ($request->wantsJson()) {
+                        return response()->json(['success' => false, 'message' => $msg], 422);
+                    }
+                    return back()->withInput()->withErrors(['allocations' => $msg]);
+                }
+
+                \App\Models\InvoicePaymentAllocation::create([
+                    'company_id' => $lockedPayment->company_id,
+                    'invoice_payment_id' => $lockedPayment->id,
+                    'client_invoice_id' => $lockedInvoice->id,
+                    'amount' => $alloc['amount'],
+                    'notes' => 'Allocated from receipt ' . $lockedPayment->receipt_number,
+                ]);
+
+                $newPaid = $lockedInvoice->paid_amount + $alloc['amount'];
+                $newStatus = ($newPaid >= $lockedInvoice->total_amount) ? 'paid' : 'partially_paid';
+
+                $lockedInvoice->update([
+                    'paid_amount' => $newPaid,
+                    'status' => $newStatus,
+                ]);
+            }
+
+            if ($request->wantsJson()) {
+                return response()->json(['success' => true, 'message' => 'Receipt allocated successfully across selected client invoices.']);
+            }
+
+            return back()->with('success', 'Receipt allocated successfully across selected client invoices.');
         });
     }
 }

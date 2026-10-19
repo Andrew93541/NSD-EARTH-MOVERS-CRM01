@@ -32,6 +32,8 @@ use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\MaterialIssueController;
 use App\Http\Controllers\CompanyProfileController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ConstructionWorkCategoryController;
+use App\Http\Controllers\TeamController;
 use Illuminate\Support\Facades\Route;
 
 // Production Health Check (Infrastructure & Monitoring)
@@ -122,6 +124,28 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [AttendanceController::class, 'index'])->name('index');
         Route::get('/muster-roll', [AttendanceController::class, 'musterRoll'])->name('muster');
         Route::post('/muster-roll', [AttendanceController::class, 'storeMuster'])->name('muster.store');
+        Route::post('/approve', [AttendanceController::class, 'approve'])->name('approve');
+        Route::post('/reject', [AttendanceController::class, 'reject'])->name('reject');
+        Route::post('/corrections', [AttendanceController::class, 'requestCorrection'])->name('corrections.store');
+        Route::post('/corrections/{correction}/approve', [AttendanceController::class, 'approveCorrection'])->name('corrections.approve');
+        Route::post('/corrections/{correction}/reject', [AttendanceController::class, 'rejectCorrection'])->name('corrections.reject');
+    });
+
+    // Construction Work Categories & Scopes
+    Route::prefix('construction-categories')->name('construction-categories.')->group(function () {
+        Route::get('/', [ConstructionWorkCategoryController::class, 'index'])->name('index');
+        Route::post('/', [ConstructionWorkCategoryController::class, 'store'])->name('store');
+        Route::put('/{category}', [ConstructionWorkCategoryController::class, 'update'])->name('update');
+        Route::delete('/{category}', [ConstructionWorkCategoryController::class, 'destroy'])->name('destroy');
+    });
+
+    // Team Access, Roles & User Management
+    Route::prefix('team')->name('team.')->group(function () {
+        Route::get('/', [TeamController::class, 'index'])->name('index');
+        Route::get('/roles', [TeamController::class, 'roles'])->name('roles');
+        Route::post('/roles', [TeamController::class, 'storeRole'])->name('roles.store');
+        Route::put('/roles/{role}', [TeamController::class, 'updateRole'])->name('roles.update');
+        Route::post('/users/{targetUser}/role', [TeamController::class, 'assignUserRole'])->name('users.role');
     });
 
     Route::prefix('employees')->name('employees.')->group(function () {
@@ -212,6 +236,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/', [BillingController::class, 'storeInvoice'])->name('store');
         Route::get('/{invoice}', [BillingController::class, 'show'])->name('show');
         Route::post('/{invoice}/payments', [BillingController::class, 'recordPayment'])->name('payments.store');
+        Route::post('/payments/{payment}/allocate', [BillingController::class, 'allocateReceipt'])->name('payments.allocate');
     });
 
     // Client Retention & Defect Liability Workflow
@@ -308,6 +333,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/journals', [AccountingController::class, 'storeJournal'])->name('journals.store');
         Route::post('/journals/{journal}/reverse', [AccountingController::class, 'reverseJournal'])->name('journals.reverse');
         Route::get('/trial-balance', [AccountingController::class, 'trialBalance'])->name('trial-balance');
+        Route::get('/profit-loss', [AccountingController::class, 'profitAndLoss'])->name('profit-loss');
+        Route::get('/balance-sheet', [AccountingController::class, 'balanceSheet'])->name('balance-sheet');
     });
 
     // Global Search

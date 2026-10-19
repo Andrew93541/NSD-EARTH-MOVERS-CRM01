@@ -125,9 +125,10 @@ class PayrollController extends Controller
             $totalDisbursement = 0.00;
 
             foreach ($activeEmployees as $emp) {
-                // Fetch daily attendance records in this period
+                // Fetch daily attendance records in this period (only approved attendance counts)
                 $attendance = DailyAttendance::where('employee_id', $emp->id)
                     ->whereBetween('attendance_date', [$validated['start_date'], $validated['end_date']])
+                    ->where('approval_status', 'approved')
                     ->get();
 
                 $presentCount = $attendance->where('status', 'present')->count();
