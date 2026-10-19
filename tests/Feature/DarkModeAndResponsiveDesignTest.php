@@ -81,4 +81,47 @@ class DarkModeAndResponsiveDesignTest extends TestCase
         $issueResponse->assertSee('overflow-x-auto', false);
         $issueResponse->assertSee('grid-cols-1', false);
     }
+
+    public function test_key_operational_modules_render_responsive_table_containers(): void
+    {
+        $modules = [
+            route('accounting.index'),
+            route('attendance.muster'),
+            route('billing.index'),
+            route('payroll.index'),
+            route('procurement.index'),
+            route('inventory.index'),
+        ];
+
+        foreach ($modules as $uri) {
+            $response = $this->actingAs($this->adminUser)->get($uri);
+            $response->assertStatus(200);
+            $response->assertSee('overflow-x-auto', false);
+        }
+    }
+
+    public function test_mobile_drawer_and_notification_dropdown_have_bounded_responsive_widths(): void
+    {
+        $response = $this->actingAs($this->adminUser)->get('/dashboard');
+
+        $response->assertStatus(200);
+        // Mobile drawer has max-w bound
+        $response->assertSee('max-w-[85vw]', false);
+        // Notification dropdown has clamped width for 320px/375px screens
+        $response->assertSee('w-[calc(100vw-2rem)]', false);
+    }
+
+    public function test_server_side_authorization_is_preserved_across_ui_routes(): void
+    {
+        // Unauthenticated guest cannot access protected UI routes
+        $response = $this->get('/dashboard');
+        $response->assertRedirect('/login');
+
+        $quoteResponse = $this->get('/quotations');
+        $quoteResponse->assertRedirect('/login');
+
+        $issueResponse = $this->get('/material-issues');
+        $issueResponse->assertRedirect('/login');
+    }
 }
+

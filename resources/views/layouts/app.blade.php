@@ -187,7 +187,7 @@
                     </svg>
                 </button>
 
-                <div>
+                <div class="min-w-0">
                     <span class="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest hidden sm:block">
                         {{ strtoupper(now()->format('l, d F, Y')) }}
                     </span>

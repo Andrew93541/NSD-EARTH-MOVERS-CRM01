@@ -168,6 +168,9 @@ window.darkModeManager = function () {
                     this.applyTheme(e.matches ? 'dark' : 'light', false);
                 }
             });
+            window.addEventListener('theme-changed', (e) => {
+                this.isDark = e.detail.isDark;
+            });
         },
         toggle() {
             this.applyTheme(this.isDark ? 'light' : 'dark', true);

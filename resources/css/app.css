@@ -179,6 +179,17 @@ html.dark textarea {
     color: #f8fafc !important;
 }
 
+html.dark select option {
+    background-color: #0f172a;
+    color: #f8fafc;
+}
+
+html.dark input[type="checkbox"],
+html.dark input[type="radio"] {
+    background-color: #1e293b;
+    border-color: #475569;
+}
+
 html.dark input::placeholder,
 html.dark textarea::placeholder {
     color: #64748b !important;
