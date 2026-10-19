@@ -17,6 +17,15 @@ use Illuminate\View\View;
 
 class AccountingController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? \App\Models\Company::configuredCompanyId()
+            ?? \App\Models\Company::first()?->id
+            ?? 1);
+    }
+
     protected function authorizeAccounting(): void
     {
         $user = Auth::user();
@@ -29,14 +38,15 @@ class AccountingController extends Controller
     public function index(): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
-        $accounts = Account::orderBy('code')->get();
+        $accounts = Account::where('company_id', $companyId)->orderBy('code')->get();
 
         $stats = [
-            'total_accounts' => Account::count(),
-            'assets_count' => Account::where('account_type', 'asset')->count(),
-            'liabilities_count' => Account::where('account_type', 'liability')->count(),
-            'revenue_count' => Account::where('account_type', 'revenue')->count(),
+            'total_accounts' => Account::where('company_id', $companyId)->count(),
+            'assets_count' => Account::where('company_id', $companyId)->where('account_type', 'asset')->count(),
+            'liabilities_count' => Account::where('company_id', $companyId)->where('account_type', 'liability')->count(),
+            'revenue_count' => Account::where('company_id', $companyId)->where('account_type', 'revenue')->count(),
         ];
 
         return view('accounting.index', compact('accounts', 'stats'));
@@ -45,8 +55,10 @@ class AccountingController extends Controller
     public function journalEntries(): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
-        $entries = JournalEntry::with(['lines.account', 'creator', 'reverser'])
+        $entries = JournalEntry::where('company_id', $companyId)
+            ->with(['lines.account', 'creator', 'reverser'])
             ->latest('entry_date')
             ->paginate(15);
 
@@ -56,9 +68,10 @@ class AccountingController extends Controller
     public function createJournal(): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
-        $accounts = Account::where('is_active', true)->orderBy('code')->get();
-        $projects = Project::orderBy('name')->get();
+        $accounts = Account::where('company_id', $companyId)->where('is_active', true)->orderBy('code')->get();
+        $projects = Project::where('company_id', $companyId)->orderBy('name')->get();
 
         return view('accounting.create-journal', compact('accounts', 'projects'));
     }
@@ -99,8 +112,11 @@ class AccountingController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($validated, $totalDebit) {
+        $companyId = $this->getCompanyId();
+
+        DB::transaction(function () use ($validated, $totalDebit, $companyId) {
             $entry = JournalEntry::create([
+                'company_id' => $companyId,
                 'entry_number' => 'JV-' . date('Y') . '-' . strtoupper(Str::random(5)),
                 'entry_date' => $validated['entry_date'],
                 'narration' => $validated['narration'],
@@ -241,8 +257,16 @@ class AccountingController extends Controller
     public function trialBalance(): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
-        $accounts = Account::with(['journalLines'])->orderBy('code')->get();
+        $accounts = Account::where('company_id', $companyId)
+            ->with(['journalLines' => function ($q) use ($companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted');
+                });
+            }])
+            ->orderBy('code')
+            ->get();
 
         $rows = [];
         $totalDebits = 0.00;
@@ -269,15 +293,17 @@ class AccountingController extends Controller
     public function profitAndLoss(Request $request): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
         $startDate = $request->input('start_date', Carbon::now()->startOfYear()->toDateString());
         $endDate = $request->input('end_date', Carbon::now()->endOfYear()->toDateString());
 
         // Fetch revenues (credit balance)
-        $revenueAccounts = Account::where('account_type', 'revenue')
-            ->with(['journalLines' => function ($q) use ($startDate, $endDate) {
-                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate) {
-                    $je->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
+        $revenueAccounts = Account::where('company_id', $companyId)
+            ->where('account_type', 'revenue')
+            ->with(['journalLines' => function ($q) use ($startDate, $endDate, $companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate, $companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
                 });
             }])
             ->orderBy('code')
@@ -294,10 +320,11 @@ class AccountingController extends Controller
         }
 
         // Fetch direct and indirect expenses (debit balance)
-        $expenseAccounts = Account::where('account_type', 'expense')
-            ->with(['journalLines' => function ($q) use ($startDate, $endDate) {
-                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate) {
-                    $je->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
+        $expenseAccounts = Account::where('company_id', $companyId)
+            ->where('account_type', 'expense')
+            ->with(['journalLines' => function ($q) use ($startDate, $endDate, $companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($startDate, $endDate, $companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted')->whereBetween('entry_date', [$startDate, $endDate]);
                 });
             }])
             ->orderBy('code')
@@ -329,14 +356,16 @@ class AccountingController extends Controller
     public function balanceSheet(Request $request): View
     {
         $this->authorizeAccounting();
+        $companyId = $this->getCompanyId();
 
         $asOfDate = $request->input('as_of_date', Carbon::today()->toDateString());
 
         // Assets (debit balance)
-        $assetAccounts = Account::where('account_type', 'asset')
-            ->with(['journalLines' => function ($q) use ($asOfDate) {
-                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
-                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+        $assetAccounts = Account::where('company_id', $companyId)
+            ->where('account_type', 'asset')
+            ->with(['journalLines' => function ($q) use ($asOfDate, $companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate, $companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
                 });
             }])
             ->orderBy('code')
@@ -353,10 +382,11 @@ class AccountingController extends Controller
         }
 
         // Liabilities (credit balance)
-        $liabilityAccounts = Account::where('account_type', 'liability')
-            ->with(['journalLines' => function ($q) use ($asOfDate) {
-                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
-                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+        $liabilityAccounts = Account::where('company_id', $companyId)
+            ->where('account_type', 'liability')
+            ->with(['journalLines' => function ($q) use ($asOfDate, $companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate, $companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
                 });
             }])
             ->orderBy('code')
@@ -373,10 +403,11 @@ class AccountingController extends Controller
         }
 
         // Equity accounts
-        $equityAccounts = Account::where('account_type', 'equity')
-            ->with(['journalLines' => function ($q) use ($asOfDate) {
-                $q->whereHas('journalEntry', function ($je) use ($asOfDate) {
-                    $je->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
+        $equityAccounts = Account::where('company_id', $companyId)
+            ->where('account_type', 'equity')
+            ->with(['journalLines' => function ($q) use ($asOfDate, $companyId) {
+                $q->whereHas('journalEntry', function ($je) use ($asOfDate, $companyId) {
+                    $je->where('company_id', $companyId)->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate);
                 });
             }])
             ->orderBy('code')
@@ -393,12 +424,12 @@ class AccountingController extends Controller
         }
 
         // Calculate Retained Earnings from cumulative P&L
-        $allRev = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('account_type', 'revenue'))
-            ->whereHas('journalEntry', fn ($q) => $q->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
+        $allRev = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('company_id', $companyId)->where('account_type', 'revenue'))
+            ->whereHas('journalEntry', fn ($q) => $q->where('company_id', $companyId)->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
             ->sum(DB::raw('credit - debit'));
 
-        $allExp = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('account_type', 'expense'))
-            ->whereHas('journalEntry', fn ($q) => $q->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
+        $allExp = (float) JournalEntryLine::whereHas('account', fn ($q) => $q->where('company_id', $companyId)->where('account_type', 'expense'))
+            ->whereHas('journalEntry', fn ($q) => $q->where('company_id', $companyId)->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
             ->sum(DB::raw('debit - credit'));
 
         $cumulativeRetainedEarnings = $allRev - $allExp;

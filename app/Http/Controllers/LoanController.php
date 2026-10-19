@@ -13,6 +13,15 @@ use Illuminate\View\View;
 
 class LoanController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? \App\Models\Company::configuredCompanyId()
+            ?? \App\Models\Company::first()?->id
+            ?? 1);
+    }
+
     protected function authorizeLoans(): void
     {
         $user = Auth::user();
@@ -25,13 +34,15 @@ class LoanController extends Controller
     public function index(Request $request): View
     {
         $this->authorizeLoans();
+        $companyId = $this->getCompanyId();
 
-        $loans = Loan::withCount(['emiSchedules as pending_emis_count' => function ($q) {
-            $q->where('status', 'pending');
-        }])->latest()->paginate(10);
+        $loans = Loan::where('company_id', $companyId)
+            ->withCount(['emiSchedules as pending_emis_count' => function ($q) {
+                $q->where('status', 'pending');
+            }])->latest()->paginate(10);
 
-        $totalOutstanding = Loan::where('status', 'active')->sum('outstanding_principal');
-        $monthlyCommitment = Loan::where('status', 'active')->sum('monthly_emi');
+        $totalOutstanding = Loan::where('company_id', $companyId)->where('status', 'active')->sum('outstanding_principal');
+        $monthlyCommitment = Loan::where('company_id', $companyId)->where('status', 'active')->sum('monthly_emi');
 
         return view('loans.index', compact('loans', 'totalOutstanding', 'monthlyCommitment'));
     }
@@ -69,6 +80,8 @@ class LoanController extends Controller
             $emi = $principal / $n;
         }
 
+        $companyId = $this->getCompanyId();
+        $validated['company_id'] = $companyId;
         $validated['monthly_emi'] = round($emi, 2);
         $validated['outstanding_principal'] = $principal;
         $validated['status'] = 'active';
@@ -109,9 +122,13 @@ class LoanController extends Controller
     public function show(Loan $loan): View
     {
         $this->authorizeLoans();
+        $companyId = $this->getCompanyId();
+
+        if ($loan->company_id !== $companyId) {
+            abort(404, 'Equipment loan not found in current company workspace.');
+        }
 
         $loan->load(['emiSchedules.journalEntry', 'fixedAsset', 'liabilityAccount', 'interestAccount']);
-        $companyId = session('current_company_id', $loan->company_id);
         $bankAccounts = \App\Models\BankAccount::where('company_id', $companyId)->where('is_active', true)->get();
 
         return view('loans.show', compact('loan', 'bankAccounts'));

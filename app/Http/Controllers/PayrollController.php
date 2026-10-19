@@ -3,9 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Events\PayrollStatusUpdated;
+use App\Models\Account;
 use App\Models\AppNotification;
+use App\Models\AuditLog;
+use App\Models\Company;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
+use App\Models\JournalEntry;
+use App\Models\JournalEntryLine;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollRecord;
 use App\Services\NotificationService;
@@ -15,10 +20,20 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class PayrollController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? Company::configuredCompanyId()
+            ?? Company::first()?->id
+            ?? 1);
+    }
+
     protected function authorizePayrollView(): void
     {
         $user = Auth::user();
@@ -58,16 +73,18 @@ class PayrollController extends Controller
     public function index(Request $request): View
     {
         $this->authorizePayrollView();
+        $companyId = $this->getCompanyId();
 
-        $periods = PayrollPeriod::with(['approver', 'records.employee'])
+        $periods = PayrollPeriod::where('company_id', $companyId)
+            ->with(['approver', 'records.employee'])
             ->latest('start_date')
             ->paginate(10);
 
         $stats = [
-            'total_disbursed' => PayrollPeriod::whereIn('status', ['approved', 'disbursed'])->sum('total_disbursement'),
-            'pending_approval' => PayrollPeriod::whereIn('status', ['draft', 'processing'])->count(),
-            'active_employees' => Employee::where('status', 'active')->count(),
-            'latest_period' => PayrollPeriod::latest('end_date')->first(),
+            'total_disbursed' => PayrollPeriod::where('company_id', $companyId)->whereIn('status', ['approved', 'disbursed'])->sum('total_disbursement'),
+            'pending_approval' => PayrollPeriod::where('company_id', $companyId)->whereIn('status', ['draft', 'processing'])->count(),
+            'active_employees' => Employee::where('company_id', $companyId)->where('status', 'active')->count(),
+            'latest_period' => PayrollPeriod::where('company_id', $companyId)->latest('end_date')->first(),
         ];
 
         return view('payroll.index', compact('periods', 'stats'));
@@ -93,9 +110,10 @@ class PayrollController extends Controller
             'end_date' => 'required|date|after_or_equal:start_date',
         ]);
 
-        $companyId = session('current_company_id');
+        $companyId = $this->getCompanyId();
 
-        $exists = PayrollPeriod::whereDate('start_date', $validated['start_date'])
+        $exists = PayrollPeriod::where('company_id', $companyId)
+            ->whereDate('start_date', $validated['start_date'])
             ->whereDate('end_date', $validated['end_date'])
             ->exists();
 
@@ -105,7 +123,9 @@ class PayrollController extends Controller
             ]);
         }
 
-        $activeEmployees = Employee::where('status', 'active')->get();
+        $activeEmployees = Employee::where('company_id', $companyId)
+            ->where('status', 'active')
+            ->get();
 
         if ($activeEmployees->isEmpty()) {
             return back()->withInput()->withErrors([
@@ -113,8 +133,9 @@ class PayrollController extends Controller
             ]);
         }
 
-        $period = DB::transaction(function () use ($validated, $activeEmployees) {
+        $period = DB::transaction(function () use ($validated, $activeEmployees, $companyId) {
             $period = PayrollPeriod::create([
+                'company_id' => $companyId,
                 'title' => $validated['title'],
                 'start_date' => $validated['start_date'],
                 'end_date' => $validated['end_date'],
@@ -138,33 +159,57 @@ class PayrollController extends Controller
                 $daysWorked = $presentCount + ($halfDayCount * 0.5);
                 $overtimeHours = (float) $attendance->sum('overtime_hours');
 
-                // Determine base compensation
+                // Determine base compensation and rates from Salary Structure if configured
+                $salaryStructure = $emp->salaryStructures()
+                    ->where('effective_from', '<=', $validated['end_date'])
+                    ->first();
+
                 $basicPay = 0.00;
                 $hourlyOtRate = 0.00;
+                $allowances = 0.00;
+                $deductions = 0.00;
 
-                if ($emp->employment_type === 'daily_wage' || $emp->employment_type === 'machine_operator') {
-                    $dailyRate = (float) ($emp->daily_wage_rate ?: ($emp->monthly_salary / 26));
-                    $basicPay = $daysWorked * $dailyRate;
-                    $hourlyOtRate = ($dailyRate / 8) * 1.5;
+                if ($salaryStructure) {
+                    if ($emp->employment_type === 'daily_wage' || $emp->employment_type === 'machine_operator') {
+                        $dailyRate = (float) ($salaryStructure->daily_wage_rate ?: ($emp->daily_wage_rate ?: ($emp->monthly_salary / 26)));
+                        $basicPay = $daysWorked * $dailyRate;
+                        $hourlyOtRate = (float) ($salaryStructure->hourly_overtime_rate > 0
+                            ? $salaryStructure->hourly_overtime_rate
+                            : (($dailyRate / 8) * 1.5));
+                    } else {
+                        $monthlySalary = (float) ($salaryStructure->monthly_salary ?: $emp->monthly_salary);
+                        $basicPay = ($daysWorked >= 26) ? $monthlySalary : round(($daysWorked / 26) * $monthlySalary, 2);
+                        $hourlyOtRate = (float) ($salaryStructure->hourly_overtime_rate > 0
+                            ? $salaryStructure->hourly_overtime_rate
+                            : (($monthlySalary / 208) * 1.5));
+                    }
+                    $allowances = (float) ($salaryStructure->standard_allowance ?? 0.00);
+                    if ($salaryStructure->statutory_deduction_percent > 0) {
+                        $deductions = round($basicPay * ((float) $salaryStructure->statutory_deduction_percent / 100), 2);
+                    }
                 } else {
-                    // Permanent or salaried staff: full salary if worked >= 26 days or pro-rated
-                    $monthlySalary = (float) $emp->monthly_salary;
-                    $basicPay = ($daysWorked >= 26) ? $monthlySalary : round(($daysWorked / 26) * $monthlySalary, 2);
-                    $hourlyOtRate = ($monthlySalary / 208) * 1.5;
+                    // Fallback to standard employment contract rules
+                    if ($emp->employment_type === 'daily_wage' || $emp->employment_type === 'machine_operator') {
+                        $dailyRate = (float) ($emp->daily_wage_rate ?: ($emp->monthly_salary / 26));
+                        $basicPay = $daysWorked * $dailyRate;
+                        $hourlyOtRate = ($dailyRate / 8) * 1.5;
+                        $allowances = 0.00;
+                        $deductions = 0.00;
+                    } else {
+                        $monthlySalary = (float) $emp->monthly_salary;
+                        $basicPay = ($daysWorked >= 26) ? $monthlySalary : round(($daysWorked / 26) * $monthlySalary, 2);
+                        $hourlyOtRate = ($monthlySalary / 208) * 1.5;
+                        $allowances = ($daysWorked >= 10 && $emp->employment_type !== 'daily_wage') ? 1500.00 : 0.00;
+                        $deductions = ($emp->employment_type === 'permanent') ? round($basicPay * 0.05, 2) : 0.00;
+                    }
                 }
 
                 $overtimePay = round($overtimeHours * $hourlyOtRate, 2);
-
-                // Standard site allowance if worked > 10 days
-                $allowances = ($daysWorked >= 10 && $emp->employment_type !== 'daily_wage') ? 1500.00 : 0.00;
-
-                // Statutory deduction (e.g. 5% PF for salaried staff)
-                $deductions = ($emp->employment_type === 'permanent') ? round($basicPay * 0.05, 2) : 0.00;
-
                 $netPay = round(($basicPay + $allowances + $overtimePay) - $deductions, 2);
                 $totalDisbursement += $netPay;
 
                 PayrollRecord::create([
+                    'company_id' => $companyId,
                     'payroll_period_id' => $period->id,
                     'employee_id' => $emp->id,
                     'days_worked' => (int) round($daysWorked),
@@ -226,18 +271,17 @@ class PayrollController extends Controller
 
         $period->records()->update(['status' => 'approved']);
 
-        if ($period->created_by) {
-            $notification = AppNotification::create([
-                'company_id' => $period->company_id,
-                'user_id' => $period->created_by,
-                'title' => 'Payroll Batch Approved',
-                'message' => "Payroll batch '{$period->name}' has been approved.",
-                'type' => 'success',
-                'action_url' => route('payroll.show', $period),
-                'is_read' => false,
-            ]);
-            NotificationService::broadcastNotification($notification);
-        }
+        $periodTitle = $period->title ?? 'Payroll Batch';
+
+        AppNotification::create([
+            'company_id' => $period->company_id,
+            'user_id' => null,
+            'title' => 'Payroll Batch Approved',
+            'message' => "Payroll batch '{$periodTitle}' has been approved.",
+            'type' => 'success',
+            'action_url' => route('payroll.show', $period),
+            'is_read' => false,
+        ]);
 
         try {
             broadcast(new PayrollStatusUpdated($period));
@@ -246,13 +290,13 @@ class PayrollController extends Controller
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([
                 'success' => true,
-                'message' => "Payroll batch '{$period->name}' approved successfully.",
+                'message' => "Payroll batch '{$periodTitle}' approved successfully.",
                 'status' => 'approved',
             ]);
         }
 
         return redirect()->route('payroll.show', $period)
-            ->with('success', "Payroll batch '{$period->name}' approved by " . (Auth::user()?->name ?? 'Authorized Officer'));
+            ->with('success', "Payroll batch '{$periodTitle}' approved by " . (Auth::user()?->name ?? 'Authorized Officer'));
     }
 
     public function disburse(Request $request, PayrollPeriod $period): JsonResponse|RedirectResponse
@@ -266,23 +310,84 @@ class PayrollController extends Controller
             return back()->withErrors(['status' => 'Payroll must be approved before disbursement.']);
         }
 
-        $period->update(['status' => 'disbursed']);
-        $period->records()->update(['status' => 'paid']);
+        DB::transaction(function () use ($period) {
+            $lockedPeriod = PayrollPeriod::where('id', $period->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedPeriod->status === 'disbursed') {
+                return;
+            }
+
+            $lockedPeriod->update(['status' => 'disbursed']);
+            $lockedPeriod->records()->update(['status' => 'paid']);
+
+            // Post GL Journal Entry for Direct Site Labor & Staff Wages
+            $companyId = $lockedPeriod->company_id ?? $this->getCompanyId();
+            $laborExpenseAccount = Account::where('company_id', $companyId)->where('code', '5010')->first();
+            $bankAccount = Account::where('company_id', $companyId)->where('code', '1010')->first();
+
+            if ($laborExpenseAccount && $bankAccount && $lockedPeriod->total_disbursement > 0) {
+                $journalEntry = JournalEntry::create([
+                    'company_id' => $companyId,
+                    'entry_number' => 'JV-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                    'entry_date' => Carbon::now()->toDateString(),
+                    'narration' => "Disbursement of payroll batch: {$lockedPeriod->title}",
+                    'total_amount' => $lockedPeriod->total_disbursement,
+                    'status' => 'posted',
+                    'created_by' => Auth::id(),
+                ]);
+
+                // Debit Direct Site Labor & Staff Wages
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $laborExpenseAccount->id,
+                    'debit' => $lockedPeriod->total_disbursement,
+                    'credit' => 0.00,
+                    'description' => "Direct labor wages disbursement for {$lockedPeriod->title}",
+                ]);
+
+                // Credit Bank Account
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $bankAccount->id,
+                    'debit' => 0.00,
+                    'credit' => $lockedPeriod->total_disbursement,
+                    'description' => "Bank payment for payroll batch {$lockedPeriod->title}",
+                ]);
+
+                JournalEntry::lockAfterCreation($journalEntry->id);
+
+                AuditLog::create([
+                    'company_id' => $companyId,
+                    'user_id' => Auth::id(),
+                    'action' => 'payroll_disbursement_posted',
+                    'auditable_type' => PayrollPeriod::class,
+                    'auditable_id' => $lockedPeriod->id,
+                    'new_values' => [
+                        'payroll_period_id' => $lockedPeriod->id,
+                        'journal_entry_id' => $journalEntry->id,
+                        'entry_number' => $journalEntry->entry_number,
+                        'amount' => $lockedPeriod->total_disbursement,
+                    ],
+                ]);
+            }
+        });
 
         try {
             broadcast(new PayrollStatusUpdated($period));
         } catch (\Throwable $e) {}
 
+        $periodTitle = $period->title ?? 'Payroll Batch';
+
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([
                 'success' => true,
-                'message' => "Payroll batch '{$period->name}' marked as disbursed and wages paid.",
+                'message' => "Payroll batch '{$periodTitle}' marked as disbursed and wages paid.",
                 'status' => 'disbursed',
             ]);
         }
 
         return redirect()->route('payroll.show', $period)
-            ->with('success', "Payroll batch '{$period->name}' marked as disbursed and wages paid.");
+            ->with('success', "Payroll batch '{$periodTitle}' marked as disbursed and wages paid.");
     }
 
     public function payslip(PayrollPeriod $period, PayrollRecord $record): View

@@ -32,3 +32,6 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+password.md
+passwords.md
+storage/logs/*.log

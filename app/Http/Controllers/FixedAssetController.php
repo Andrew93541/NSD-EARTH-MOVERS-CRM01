@@ -17,6 +17,15 @@ use Illuminate\View\View;
 
 class FixedAssetController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? \App\Models\Company::configuredCompanyId()
+            ?? \App\Models\Company::first()?->id
+            ?? 1);
+    }
+
     protected function authorizeAssets(): void
     {
         $user = Auth::user();
@@ -30,7 +39,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
 
         $query = FixedAsset::where('company_id', $companyId)
             ->with(['project', 'loan', 'depreciationEntries' => function ($q) {
@@ -85,7 +94,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         $projects = Project::where('company_id', $companyId)->orderBy('name')->get();
         $loans = Loan::where('company_id', $companyId)->where('status', 'active')->orderBy('lender_name')->get();
 
@@ -96,7 +105,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
 
         $validated = $request->validate([
             'asset_code' => 'required|string|max:50|unique:fixed_assets,asset_code,NULL,id,company_id,' . $companyId,
@@ -182,7 +191,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         if ($asset->company_id !== $companyId) {
             abort(404, 'Asset not found in current company workspace.');
         }
@@ -204,7 +213,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         if ($asset->company_id !== $companyId) {
             abort(404, 'Asset not found in current company workspace.');
         }
@@ -230,7 +239,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         if ($entry->company_id !== $companyId) {
             abort(404, 'Depreciation record not found in current company workspace.');
         }
@@ -248,7 +257,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         if ($entry->company_id !== $companyId) {
             abort(404, 'Depreciation record not found in current company workspace.');
         }
@@ -270,7 +279,7 @@ class FixedAssetController extends Controller
     {
         $this->authorizeAssets();
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
 
         if ($request->filled('period_month') && preg_match('/^(\d{4})-(\d{1,2})$/', $request->period_month, $matches)) {
             $year = (int) $matches[1];
@@ -306,7 +315,7 @@ class FixedAssetController extends Controller
             $year = (int) $validated['year'];
         }
 
-        $companyId = session('current_company_id', Auth::user()->companies()->first()?->id);
+        $companyId = $this->getCompanyId();
         $periodStart = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $periodEnd = (clone $periodStart)->endOfMonth();
 

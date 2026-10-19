@@ -103,34 +103,52 @@ class ProductionSeeder extends Seeder
             ]
         );
 
-        // 3. Primary Administrator User
-        $admin = User::firstOrCreate(
-            ['email' => 'admin@nsdinfra.com'],
-            [
-                'name' => 'Rajesh Varma',
-                'password' => Hash::make('Password123!'),
-            ]
-        );
+        // 3. Primary Administrator & Operational Role Users
+        $defaultPassword = Hash::make('Password123!');
 
-        $company->users()->syncWithoutDetaching([
-            $admin->id => [
-                'role_id' => $ownerRole->id,
-                'status' => 'active',
-                'is_primary' => true,
-            ],
-        ]);
+        $users = [
+            ['name' => 'Rajesh Varma', 'email' => 'admin@nsdinfra.com', 'role' => $ownerRole, 'primary' => true],
+            ['name' => 'Amit Sharma', 'email' => 'pm@nsdinfra.com', 'role' => $pmRole, 'primary' => false],
+            ['name' => 'Sneha Roy', 'email' => 'accounts@nsdinfra.com', 'role' => $accountantRole, 'primary' => false],
+            ['name' => 'Vikram Malhotra', 'email' => 'supervisor@nsdinfra.com', 'role' => $siteSupervisorRole, 'primary' => false],
+            ['name' => 'Anand Joshi', 'email' => 'procurement@nsdinfra.com', 'role' => $procurementRole, 'primary' => false],
+            ['name' => 'Gopal Das', 'email' => 'storekeeper@nsdinfra.com', 'role' => $storekeeperRole, 'primary' => false],
+            ['name' => 'Meera Nair', 'email' => 'hr@nsdinfra.com', 'role' => $hrRole, 'primary' => false],
+        ];
+
+        foreach ($users as $userData) {
+            $user = User::firstOrCreate(
+                ['email' => $userData['email']],
+                [
+                    'name' => $userData['name'],
+                    'password' => $defaultPassword,
+                ]
+            );
+
+            $company->users()->syncWithoutDetaching([
+                $user->id => [
+                    'role_id' => $userData['role']->id,
+                    'status' => 'active',
+                    'is_primary' => $userData['primary'],
+                ],
+            ]);
+        }
 
         // 4. Baseline Chart of Accounts
         $accounts = [
             ['code' => '1010', 'name' => 'HDFC Current Bank Account', 'account_type' => 'asset', 'sub_type' => 'current_asset'],
             ['code' => '1020', 'name' => 'Accounts Receivable (Clients)', 'account_type' => 'asset', 'sub_type' => 'current_asset'],
             ['code' => '1025', 'name' => 'Retention Money Withheld by Clients', 'account_type' => 'asset', 'sub_type' => 'current_asset'],
+            ['code' => '2020', 'name' => 'Accounts Payable (Suppliers)', 'account_type' => 'liability', 'sub_type' => 'current_liability'],
             ['code' => '4010', 'name' => 'Civil Contracting Revenue', 'account_type' => 'revenue', 'sub_type' => 'operating_revenue'],
             ['code' => '1510', 'name' => 'Plant, Machinery & Heavy Earthmoving Equipment', 'account_type' => 'asset', 'sub_type' => 'fixed_asset'],
             ['code' => '1520', 'name' => 'Accumulated Depreciation - Plant & Machinery', 'account_type' => 'asset', 'sub_type' => 'fixed_asset'],
             ['code' => '2010', 'name' => 'Equipment Financing Loans & Borrowings', 'account_type' => 'liability', 'sub_type' => 'non_current_liability'],
+            ['code' => '5010', 'name' => 'Direct Site Labor & Staff Wages', 'account_type' => 'expense', 'sub_type' => 'direct_cost'],
             ['code' => '5020', 'name' => 'Loan Interest & Financing Charges', 'account_type' => 'expense', 'sub_type' => 'finance_cost'],
             ['code' => '5030', 'name' => 'Depreciation Expense - Heavy Equipment & Fleet', 'account_type' => 'expense', 'sub_type' => 'depreciation'],
+            ['code' => '5040', 'name' => 'Material Procurement & Consumables', 'account_type' => 'expense', 'sub_type' => 'direct_cost'],
+            ['code' => '5050', 'name' => 'Site Operating & Subcontractor Expenses', 'account_type' => 'expense', 'sub_type' => 'direct_cost'],
         ];
 
         foreach ($accounts as $acc) {

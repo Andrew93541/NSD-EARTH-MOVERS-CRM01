@@ -103,9 +103,9 @@ class ProjectController extends Controller
     {
         $this->authorizeView();
 
-        $companyId = session('current_company_id') ?? Auth::user()?->currentCompany()?->id;
+        $companyId = session('current_company_id') ?? Auth::user()?->currentCompany()?->id ?? \App\Models\Company::configuredCompanyId() ?? 1;
 
-        if ($project->company_id !== $companyId) {
+        if ((int) $project->company_id !== (int) $companyId) {
             abort(404, 'Project not found in active company.');
         }
 

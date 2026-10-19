@@ -28,6 +28,11 @@ return Application::configure(basePath: dirname(__DIR__))
             ResolveTenantWorkspace::class,
         ]);
 
+        $middleware->validateCsrfTokens(except: [
+            'api/webhooks/*',
+            'webhooks/*',
+        ]);
+
         $middleware->alias([
             'permission' => CheckPermission::class,
         ]);

@@ -96,7 +96,12 @@ class BillingAndReceivablesTest extends TestCase
         $this->assertEquals(50000.00, $invoice->retention_amount);
         $this->assertEquals(1130000.00, $invoice->total_amount);
         $this->assertEquals(0.00, $invoice->paid_amount);
-        $this->assertEquals('approved', $invoice->status);
+        $this->assertEquals('submitted', $invoice->status);
+
+        // Explicit approval step
+        $approveResponse = $this->actingAs($this->user)->post(route('billing.approve', $invoice));
+        $approveResponse->assertRedirect();
+        $this->assertEquals('approved', $invoice->fresh()->status);
     }
 
     public function test_supports_partial_payments_and_tracks_outstanding_balance(): void

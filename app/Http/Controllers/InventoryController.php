@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppNotification;
+use App\Models\Company;
 use App\Models\Material;
 use App\Models\MaterialCategory;
 use App\Models\StockLedgerEntry;
@@ -19,18 +20,30 @@ use Illuminate\View\View;
 
 class InventoryController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? Company::configuredCompanyId()
+            ?? Company::first()?->id
+            ?? 1);
+    }
+
     public function index(Request $request): View
     {
-        $materials = Material::with(['category', 'ledgerEntries'])
+        $companyId = $this->getCompanyId();
+
+        $materials = Material::where('company_id', $companyId)
+            ->with(['category', 'ledgerEntries'])
             ->latest()
             ->paginate(12);
 
-        $warehouses = Warehouse::with(['site'])->get();
+        $warehouses = Warehouse::where('company_id', $companyId)->with(['site'])->get();
 
         $stats = [
-            'total_materials' => Material::count(),
-            'total_warehouses' => Warehouse::count(),
-            'low_stock' => Material::all()->filter(fn ($m) => $m->currentStock() <= $m->reorder_level)->count(),
+            'total_materials' => Material::where('company_id', $companyId)->count(),
+            'total_warehouses' => Warehouse::where('company_id', $companyId)->count(),
+            'low_stock' => Material::where('company_id', $companyId)->get()->filter(fn ($m) => $m->currentStock() <= $m->reorder_level)->count(),
         ];
 
         return view('inventory.index', compact('materials', 'warehouses', 'stats'));
@@ -38,7 +51,10 @@ class InventoryController extends Controller
 
     public function ledger(Request $request): View
     {
-        $entries = StockLedgerEntry::with(['material', 'warehouse', 'creator'])
+        $companyId = $this->getCompanyId();
+
+        $entries = StockLedgerEntry::where('company_id', $companyId)
+            ->with(['material', 'warehouse', 'creator'])
             ->latest('entry_date')
             ->paginate(20);
 
@@ -58,9 +74,10 @@ class InventoryController extends Controller
     public function createTransfer(): View
     {
         $this->authorizeStockTransfer();
+        $companyId = $this->getCompanyId();
 
-        $warehouses = Warehouse::orderBy('name')->get();
-        $materials = Material::orderBy('name')->get();
+        $warehouses = Warehouse::where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get();
+        $materials = Material::where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get();
 
         return view('inventory.create-transfer', compact('warehouses', 'materials'));
     }
@@ -68,6 +85,8 @@ class InventoryController extends Controller
     public function storeTransfer(Request $request): RedirectResponse
     {
         $this->authorizeStockTransfer();
+        $companyId = $this->getCompanyId();
+
         $validated = $request->validate([
             'from_warehouse_id' => 'required|exists:warehouses,id|different:to_warehouse_id',
             'to_warehouse_id' => 'required|exists:warehouses,id',
@@ -79,39 +98,49 @@ class InventoryController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $material = Material::findOrFail($validated['material_id']);
-        $sourceWarehouse = Warehouse::findOrFail($validated['from_warehouse_id']);
-        $targetWarehouse = Warehouse::findOrFail($validated['to_warehouse_id']);
+        $material = Material::where('id', $validated['material_id'])->where('company_id', $companyId)->firstOrFail();
+        $sourceWarehouse = Warehouse::where('id', $validated['from_warehouse_id'])->where('company_id', $companyId)->first();
+        $targetWarehouse = Warehouse::where('id', $validated['to_warehouse_id'])->where('company_id', $companyId)->first();
 
-        // Check stock availability in source warehouse
-        $inStock = StockLedgerEntry::where('material_id', $material->id)
-            ->where('warehouse_id', $sourceWarehouse->id)
-            ->where('direction', 'in')
-            ->sum('quantity');
-
-        $outStock = StockLedgerEntry::where('material_id', $material->id)
-            ->where('warehouse_id', $sourceWarehouse->id)
-            ->where('direction', 'out')
-            ->sum('quantity');
-
-        $availableStock = $inStock - $outStock;
-
-        if ($availableStock < $validated['quantity']) {
-            return back()->withInput()->withErrors([
-                'quantity' => "Insufficient stock in {$sourceWarehouse->name}. Available: {$availableStock} {$material->unit_of_measure}, Requested: {$validated['quantity']}",
-            ]);
+        if (! $sourceWarehouse || ! $targetWarehouse) {
+            abort(403, 'Both source and target warehouses must belong to the active company workspace.');
         }
 
-        // Atomic double-entry stock movement
-        DB::transaction(function () use ($validated, $material, $sourceWarehouse, $targetWarehouse, $availableStock) {
+        // Atomic double-entry stock movement with concurrency locking
+        $result = DB::transaction(function () use ($validated, $material, $sourceWarehouse, $targetWarehouse, $companyId) {
+            // Check stock availability in source warehouse with locking
+            $inStock = (float) StockLedgerEntry::where('material_id', $material->id)
+                ->where('warehouse_id', $sourceWarehouse->id)
+                ->where('company_id', $companyId)
+                ->where('direction', 'in')
+                ->lockForUpdate()
+                ->sum('quantity');
+
+            $outStock = (float) StockLedgerEntry::where('material_id', $material->id)
+                ->where('warehouse_id', $sourceWarehouse->id)
+                ->where('company_id', $companyId)
+                ->where('direction', 'out')
+                ->lockForUpdate()
+                ->sum('quantity');
+
+            $availableStock = $inStock - $outStock;
+
+            if ($availableStock < (float) $validated['quantity']) {
+                return [
+                    'success' => false,
+                    'message' => "Insufficient stock in {$sourceWarehouse->name}. Available: {$availableStock} {$material->unit_of_measure}, Requested: {$validated['quantity']}",
+                ];
+            }
+
             $transfer = StockTransfer::create([
+                'company_id' => $companyId,
                 'transfer_number' => 'TRF-' . strtoupper(Str::random(8)),
                 'from_warehouse_id' => $sourceWarehouse->id,
                 'to_warehouse_id' => $targetWarehouse->id,
                 'transfer_date' => $validated['transfer_date'],
-                'vehicle_number' => $validated['vehicle_number'],
-                'driver_name' => $validated['driver_name'],
-                'notes' => $validated['notes'],
+                'vehicle_number' => $validated['vehicle_number'] ?? null,
+                'driver_name' => $validated['driver_name'] ?? null,
+                'notes' => $validated['notes'] ?? null,
                 'status' => 'received',
                 'requested_by' => Auth::id(),
                 'approved_by' => Auth::id(),
@@ -128,6 +157,7 @@ class InventoryController extends Controller
 
             // Outflow from source warehouse
             StockLedgerEntry::create([
+                'company_id' => $companyId,
                 'material_id' => $material->id,
                 'warehouse_id' => $sourceWarehouse->id,
                 'entry_date' => $validated['transfer_date'],
@@ -137,20 +167,23 @@ class InventoryController extends Controller
                 'quantity' => $validated['quantity'],
                 'direction' => 'out',
                 'unit_rate' => $material->standard_cost,
-                'total_amount' => $validated['quantity'] * $material->standard_cost,
+                'total_amount' => round($validated['quantity'] * $material->standard_cost, 2),
                 'balance_quantity' => $availableStock - $validated['quantity'],
                 'created_by' => Auth::id(),
             ]);
 
             // Inflow to destination warehouse
-            $targetStock = StockLedgerEntry::where('material_id', $material->id)
+            $targetStock = (float) StockLedgerEntry::where('material_id', $material->id)
                 ->where('warehouse_id', $targetWarehouse->id)
+                ->where('company_id', $companyId)
                 ->where('direction', 'in')->sum('quantity') -
-                StockLedgerEntry::where('material_id', $material->id)
+                (float) StockLedgerEntry::where('material_id', $material->id)
                 ->where('warehouse_id', $targetWarehouse->id)
+                ->where('company_id', $companyId)
                 ->where('direction', 'out')->sum('quantity');
 
             StockLedgerEntry::create([
+                'company_id' => $companyId,
                 'material_id' => $material->id,
                 'warehouse_id' => $targetWarehouse->id,
                 'entry_date' => $validated['transfer_date'],
@@ -160,7 +193,7 @@ class InventoryController extends Controller
                 'quantity' => $validated['quantity'],
                 'direction' => 'in',
                 'unit_rate' => $material->standard_cost,
-                'total_amount' => $validated['quantity'] * $material->standard_cost,
+                'total_amount' => round($validated['quantity'] * $material->standard_cost, 2),
                 'balance_quantity' => $targetStock + $validated['quantity'],
                 'created_by' => Auth::id(),
             ]);
@@ -168,16 +201,22 @@ class InventoryController extends Controller
             $remainingStock = $availableStock - $validated['quantity'];
             if ($remainingStock <= (float) $material->reorder_level) {
                 AppNotification::create([
-                    'company_id' => $material->company_id ?? Auth::user()->currentCompany()?->id,
+                    'company_id' => $companyId,
                     'user_id' => null,
                     'title' => 'Material Stock Shortage Alert',
-                    'message' => "Warning: Stock for {$material->name} ({$material->item_code}) in {$sourceWarehouse->name} is at {$remainingStock} {$material->unit_of_measure} (reorder level: {$material->reorder_level}).",
+                    'message' => "Warning: Stock for {$material->name} (" . ($material->code ?? 'N/A') . ") in {$sourceWarehouse->name} is at {$remainingStock} {$material->unit_of_measure} (reorder level: {$material->reorder_level}).",
                     'type' => 'warning',
                     'action_url' => route('inventory.index'),
                     'is_read' => false,
                 ]);
             }
+
+            return ['success' => true];
         });
+
+        if (! $result['success']) {
+            return back()->withInput()->withErrors(['quantity' => $result['message']]);
+        }
 
         return redirect()->route('inventory.ledger')->with('success', "Transfer of {$validated['quantity']} {$material->unit_of_measure} dispatched and recorded atomically.");
     }

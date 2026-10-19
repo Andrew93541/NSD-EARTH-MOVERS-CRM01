@@ -144,6 +144,7 @@ class Quotation extends Model
                 'client_id' => $quotation->client_id,
                 'name' => $overrides['name'] ?? $quotation->project_title,
                 'code' => $code,
+                'project_type' => $overrides['project_type'] ?? 'earthmoving',
                 'contract_value' => $quotation->total_amount,
                 'approved_budget' => $quotation->subtotal,
                 'actual_cost' => 0.00,
@@ -153,6 +154,27 @@ class Quotation extends Model
                 'progress_percent' => 0,
                 'manager_id' => $overrides['manager_id'] ?? $user->id,
                 'description' => $quotation->project_description,
+            ]);
+
+            // Link formal Client Contract for progress billing and retention tracking
+            $contractNumber = 'CNT-' . date('Y') . '-' . strtoupper(Str::random(4));
+            while (\App\Models\ClientContract::where('contract_number', $contractNumber)->exists()) {
+                $contractNumber = 'CNT-' . date('Y') . '-' . strtoupper(Str::random(4));
+            }
+
+            \App\Models\ClientContract::create([
+                'company_id' => $quotation->company_id,
+                'client_id' => $quotation->client_id,
+                'project_id' => $project->id,
+                'contract_number' => $contractNumber,
+                'title' => $project->name . ' - Contract Agreement',
+                'contract_value' => $quotation->total_amount,
+                'start_date' => $project->start_date,
+                'completion_date' => $project->target_completion_date,
+                'retention_applicable' => true,
+                'retention_rate_percent' => 5.00,
+                'status' => 'active',
+                'created_by' => $user->id,
             ]);
 
             $quotation->update([

@@ -34,10 +34,16 @@ use App\Http\Controllers\CompanyProfileController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ConstructionWorkCategoryController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\Webhook\GitHubDeployWebhookController;
 use Illuminate\Support\Facades\Route;
 
 // Production Health Check (Infrastructure & Monitoring)
 Route::get('/health', [HealthCheckController::class, 'check'])->name('health')->middleware('throttle:60,1');
+
+// Automated GitHub Deployment Webhook (Authenticated via HMAC SHA-256)
+Route::post('/api/webhooks/github-deploy', [GitHubDeployWebhookController::class, 'handle'])
+    ->name('webhooks.github.deploy')
+    ->middleware('throttle:30,1');
 
 // Guest Auth Routes
 Route::middleware('guest')->group(function () {
@@ -193,6 +199,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/orders/{order}/receive', [ProcurementController::class, 'storeGRN'])->name('receive.store');
         Route::post('/orders/{order}/invoice', [ProcurementController::class, 'storeSupplierInvoice'])->name('invoice.store');
         Route::get('/supplier-invoices', [ProcurementController::class, 'supplierInvoices'])->name('invoices');
+        Route::post('/invoices/{invoice}/approve', [ProcurementController::class, 'approveSupplierInvoice'])->name('invoice.approve');
+        Route::post('/invoices/{invoice}/payments', [ProcurementController::class, 'recordPayment'])->name('invoice.payment');
 
         // Approval Policies configuration
         Route::prefix('approval-policies')->name('policies.')->group(function () {
@@ -235,6 +243,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/create', [BillingController::class, 'createInvoice'])->name('create');
         Route::post('/', [BillingController::class, 'storeInvoice'])->name('store');
         Route::get('/{invoice}', [BillingController::class, 'show'])->name('show');
+        Route::post('/{invoice}/approve', [BillingController::class, 'approveInvoice'])->name('approve');
         Route::post('/{invoice}/payments', [BillingController::class, 'recordPayment'])->name('payments.store');
         Route::post('/payments/{payment}/allocate', [BillingController::class, 'allocateReceipt'])->name('payments.allocate');
     });
@@ -301,6 +310,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', [ExpenseController::class, 'index'])->name('index');
         Route::get('/create', [ExpenseController::class, 'create'])->name('create');
         Route::post('/', [ExpenseController::class, 'store'])->name('store');
+        Route::post('/{expense}/approve', [ExpenseController::class, 'approve'])->name('approve');
     });
 
     Route::prefix('loans')->name('loans.')->group(function () {

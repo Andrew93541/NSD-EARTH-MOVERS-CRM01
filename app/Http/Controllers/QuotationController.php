@@ -487,6 +487,7 @@ class QuotationController extends Controller
 
         $validated = $request->validate([
             'project_name' => 'nullable|string|max:255',
+            'project_type' => 'nullable|string|in:civil,interior,maintenance,earthmoving',
             'start_date' => 'nullable|date',
             'target_completion_date' => 'nullable|date|after_or_equal:start_date',
             'manager_id' => 'nullable|exists:users,id',
@@ -495,6 +496,7 @@ class QuotationController extends Controller
         try {
             $project = $quotation->convertToProject(Auth::user(), [
                 'name' => $validated['project_name'] ?? null,
+                'project_type' => $validated['project_type'] ?? 'earthmoving',
                 'start_date' => $validated['start_date'] ?? null,
                 'target_completion_date' => $validated['target_completion_date'] ?? null,
                 'manager_id' => $validated['manager_id'] ?? null,

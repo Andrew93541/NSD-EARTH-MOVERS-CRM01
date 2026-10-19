@@ -8,6 +8,7 @@ use App\Models\MeasurementBookEntry;
 use App\Models\Project;
 use App\Models\SubcontractorBill;
 use App\Models\SubcontractorWorkOrder;
+use App\Models\Company;
 use App\Services\SubcontractorBillingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,15 @@ use Illuminate\View\View;
 
 class SubcontractorBillController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? Company::configuredCompanyId()
+            ?? Company::first()?->id
+            ?? 1);
+    }
+
     /**
      * Subcontractor RA Bills Register.
      */
@@ -23,8 +33,7 @@ class SubcontractorBillController extends Controller
     {
         $this->authorizeView();
 
-        $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
         $query = SubcontractorBill::where('company_id', $companyId)
             ->with(['project', 'subcontractor', 'workOrder', 'creator', 'certifier', 'journalEntry']);
@@ -75,8 +84,7 @@ class SubcontractorBillController extends Controller
     {
         $this->authorizePrepare();
 
-        $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
         $workOrders = SubcontractorWorkOrder::where('company_id', $companyId)
             ->whereIn('status', ['approved', 'active'])
@@ -159,10 +167,9 @@ class SubcontractorBillController extends Controller
     {
         $this->authorizeView();
 
-        $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
-        if ($subcontractorBill->company_id !== $companyId) {
+        if ((int) $subcontractorBill->company_id !== (int) $companyId) {
             abort(404);
         }
 
@@ -193,9 +200,9 @@ class SubcontractorBillController extends Controller
         $this->authorizeCertify();
 
         $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
-        if ($subcontractorBill->company_id !== $companyId) {
+        if ((int) $subcontractorBill->company_id !== (int) $companyId) {
             abort(404);
         }
 
@@ -225,9 +232,9 @@ class SubcontractorBillController extends Controller
         $this->authorizePayment();
 
         $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
-        if ($subcontractorBill->company_id !== $companyId) {
+        if ((int) $subcontractorBill->company_id !== (int) $companyId) {
             abort(404);
         }
 
@@ -266,9 +273,9 @@ class SubcontractorBillController extends Controller
         $this->authorizeCertify();
 
         $user = Auth::user();
-        $companyId = $user->company_id ?? session('current_company_id');
+        $companyId = $this->getCompanyId();
 
-        if ($subcontractorBill->company_id !== $companyId) {
+        if ((int) $subcontractorBill->company_id !== (int) $companyId) {
             abort(404);
         }
 

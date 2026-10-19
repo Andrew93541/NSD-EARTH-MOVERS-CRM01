@@ -2,10 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Account;
 use App\Models\AppNotification;
+use App\Models\AuditLog;
+use App\Models\Company;
 use App\Models\GoodsReceipt;
 use App\Models\GoodsReceiptItem;
+use App\Models\JournalEntry;
+use App\Models\JournalEntryLine;
 use App\Models\Material;
+use App\Models\Payment;
 use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -14,6 +20,7 @@ use App\Models\Supplier;
 use App\Models\SupplierInvoice;
 use App\Models\Warehouse;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,21 +30,13 @@ use Illuminate\View\View;
 
 class ProcurementController extends Controller
 {
-    public function index(Request $request): View
+    protected function getCompanyId(): int
     {
-        $orders = PurchaseOrder::with(['supplier', 'project', 'creator'])
-            ->latest()
-            ->paginate(10);
-
-        $suppliers = Supplier::withCount('purchaseOrders')->get();
-
-        $stats = [
-            'total_pos' => PurchaseOrder::count(),
-            'pending_pos' => PurchaseOrder::where('status', 'draft')->count(),
-            'total_po_value' => PurchaseOrder::sum('total_amount'),
-        ];
-
-        return view('procurement.index', compact('orders', 'suppliers', 'stats'));
+        return (int) (session('current_company_id')
+            ?? Auth::user()?->currentCompany()?->id
+            ?? Company::configuredCompanyId()
+            ?? Company::first()?->id
+            ?? 1);
     }
 
     protected function authorizeDirectPO(): void
@@ -70,13 +69,34 @@ class ProcurementController extends Controller
         }
     }
 
+    public function index(Request $request): View
+    {
+        $companyId = $this->getCompanyId();
+
+        $orders = PurchaseOrder::where('company_id', $companyId)
+            ->with(['supplier', 'project', 'creator'])
+            ->latest()
+            ->paginate(10);
+
+        $suppliers = Supplier::where('company_id', $companyId)->withCount('purchaseOrders')->get();
+
+        $stats = [
+            'total_pos' => PurchaseOrder::where('company_id', $companyId)->count(),
+            'pending_pos' => PurchaseOrder::where('company_id', $companyId)->where('status', 'draft')->count(),
+            'total_po_value' => PurchaseOrder::where('company_id', $companyId)->sum('total_amount'),
+        ];
+
+        return view('procurement.index', compact('orders', 'suppliers', 'stats'));
+    }
+
     public function createPO(): View
     {
         $this->authorizeDirectPO();
+        $companyId = $this->getCompanyId();
 
-        $suppliers = Supplier::where('status', 'active')->orderBy('name')->get();
-        $projects = Project::whereIn('status', ['on_track', 'at_risk', 'delayed'])->orderBy('name')->get();
-        $materials = Material::where('is_active', true)->orderBy('name')->get();
+        $suppliers = Supplier::where('company_id', $companyId)->where('status', 'active')->orderBy('name')->get();
+        $projects = Project::where('company_id', $companyId)->whereIn('status', ['on_track', 'at_risk', 'delayed'])->orderBy('name')->get();
+        $materials = Material::where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get();
 
         return view('procurement.create-po', compact('suppliers', 'projects', 'materials'));
     }
@@ -92,14 +112,19 @@ class ProcurementController extends Controller
             'material_id' => 'required|exists:materials,id',
             'quantity' => 'required|numeric|min:0.01',
             'unit_price' => 'required|numeric|min:0',
+            'tax_rate' => 'nullable|numeric|between:0,100',
             'terms_and_conditions' => 'nullable|string',
         ]);
 
-        $subtotal = $validated['quantity'] * $validated['unit_price'];
-        $tax = $subtotal * 0.18; // Standard 18% GST for industrial construction materials
-        $total = $subtotal + $tax;
+        $companyId = $this->getCompanyId();
+        $taxRate = $request->filled('tax_rate') ? (float) $request->input('tax_rate') : 18.00;
+
+        $subtotal = round($validated['quantity'] * $validated['unit_price'], 2);
+        $tax = round($subtotal * ($taxRate / 100), 2);
+        $total = round($subtotal + $tax, 2);
 
         $po = PurchaseOrder::create([
+            'company_id' => $companyId,
             'supplier_id' => $validated['supplier_id'],
             'project_id' => $validated['project_id'],
             'po_number' => 'PO-' . date('Y') . '-' . strtoupper(Str::random(5)),
@@ -109,7 +134,7 @@ class ProcurementController extends Controller
             'tax_amount' => $tax,
             'total_amount' => $total,
             'status' => 'approved',
-            'terms_and_conditions' => $validated['terms_and_conditions'],
+            'terms_and_conditions' => $validated['terms_and_conditions'] ?? null,
             'created_by' => Auth::id(),
             'approved_by' => Auth::id(),
             'approved_at' => Carbon::now(),
@@ -120,13 +145,13 @@ class ProcurementController extends Controller
             'material_id' => $validated['material_id'],
             'quantity_ordered' => $validated['quantity'],
             'unit_price' => $validated['unit_price'],
-            'tax_percent' => 18.00,
+            'tax_percent' => $taxRate,
             'total_price' => $total,
         ]);
 
         if ($po->project?->manager_id) {
             AppNotification::create([
-                'company_id' => $po->project->company_id,
+                'company_id' => $po->company_id,
                 'user_id' => $po->project->manager_id,
                 'title' => 'Purchase Order Issued',
                 'message' => "Purchase Order {$po->po_number} generated for {$po->supplier->name}.",
@@ -166,7 +191,8 @@ class ProcurementController extends Controller
         }
 
         $order->load(['items.material', 'supplier', 'project']);
-        $warehouses = Warehouse::where('is_active', true)->orderBy('name')->get();
+        $companyId = $order->company_id ?? $this->getCompanyId();
+        $warehouses = Warehouse::where('company_id', $companyId)->where('is_active', true)->orderBy('name')->get();
 
         return view('procurement.receive', compact('order', 'warehouses'));
     }
@@ -230,8 +256,11 @@ class ProcurementController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($validated, $order) {
+        $companyId = $order->company_id ?? $this->getCompanyId();
+
+        DB::transaction(function () use ($validated, $order, $companyId) {
             $grn = GoodsReceipt::create([
+                'company_id' => $companyId,
                 'purchase_order_id' => $order->id,
                 'warehouse_id' => $validated['warehouse_id'],
                 'grn_number' => 'GRN-' . date('Y') . '-' . strtoupper(Str::random(5)),
@@ -274,6 +303,7 @@ class ProcurementController extends Controller
                         ->where('direction', 'out')->sum('quantity');
 
                     StockLedgerEntry::create([
+                        'company_id' => $companyId,
                         'material_id' => $poItem->material_id,
                         'warehouse_id' => $validated['warehouse_id'],
                         'entry_date' => $validated['receipt_date'],
@@ -306,7 +336,7 @@ class ProcurementController extends Controller
 
             if ($order->created_by || $order->project?->manager_id) {
                 AppNotification::create([
-                    'company_id' => $order->project?->company_id ?? Auth::user()->currentCompany()?->id,
+                    'company_id' => $companyId,
                     'user_id' => $order->created_by ?: $order->project?->manager_id,
                     'title' => 'Goods Receipt Recorded',
                     'message' => "Goods Receipt {$grn->grn_number} recorded for PO {$order->po_number}.",
@@ -335,8 +365,10 @@ class ProcurementController extends Controller
 
         $tax = (float) ($validated['tax_amount'] ?? 0);
         $total = (float) $validated['subtotal'] + $tax;
+        $companyId = $order->company_id ?? $this->getCompanyId();
 
         SupplierInvoice::create([
+            'company_id' => $companyId,
             'supplier_id' => $order->supplier_id,
             'purchase_order_id' => $order->id,
             'invoice_number' => $validated['invoice_number'],
@@ -347,19 +379,236 @@ class ProcurementController extends Controller
             'total_amount' => $total,
             'paid_amount' => 0.00,
             'status' => 'pending_approval',
-            'approved_by' => Auth::id(),
-            'approved_at' => Carbon::now(),
+            'approved_by' => null,
+            'approved_at' => null,
         ]);
 
         return redirect()->route('procurement.show', $order)
-            ->with('success', "Supplier Invoice {$validated['invoice_number']} recorded for payment matching.");
+            ->with('success', "Supplier Invoice {$validated['invoice_number']} recorded and submitted for approval.");
+    }
+
+    public function approveSupplierInvoice(Request $request, SupplierInvoice $invoice): JsonResponse|RedirectResponse
+    {
+        $this->authorizeSupplierInvoice();
+
+        if ($invoice->status !== 'pending_approval') {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Only pending supplier invoices can be approved.'], 422);
+            }
+            return back()->withErrors(['status' => 'Only pending supplier invoices can be approved.']);
+        }
+
+        DB::transaction(function () use ($invoice) {
+            $lockedInvoice = SupplierInvoice::where('id', $invoice->id)->lockForUpdate()->firstOrFail();
+
+            $lockedInvoice->update([
+                'status' => 'approved',
+                'approved_by' => Auth::id(),
+                'approved_at' => Carbon::now(),
+            ]);
+
+            // Post GL Accrual Journal Entry: Dr 5040 (Material Procurement), Cr 2020 (Accounts Payable)
+            $companyId = $lockedInvoice->company_id ?? $this->getCompanyId();
+            $procurementAccount = Account::where('company_id', $companyId)->where('code', '5040')->first();
+            $apAccount = Account::where('company_id', $companyId)->where('code', '2020')->first();
+
+            if ($procurementAccount && $apAccount && $lockedInvoice->total_amount > 0) {
+                $journalEntry = JournalEntry::create([
+                    'company_id' => $companyId,
+                    'entry_number' => 'JV-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                    'entry_date' => $lockedInvoice->invoice_date->toDateString(),
+                    'narration' => "Supplier invoice accrual for {$lockedInvoice->invoice_number} ({$lockedInvoice->supplier->name})",
+                    'total_amount' => $lockedInvoice->total_amount,
+                    'status' => 'posted',
+                    'created_by' => Auth::id(),
+                ]);
+
+                // Debit Material Procurement Expense
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $procurementAccount->id,
+                    'debit' => $lockedInvoice->total_amount,
+                    'credit' => 0.00,
+                    'description' => "Material procurement cost for invoice {$lockedInvoice->invoice_number}",
+                ]);
+
+                // Credit Accounts Payable
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $apAccount->id,
+                    'debit' => 0.00,
+                    'credit' => $lockedInvoice->total_amount,
+                    'description' => "Payable to {$lockedInvoice->supplier->name} for invoice {$lockedInvoice->invoice_number}",
+                ]);
+
+                JournalEntry::lockAfterCreation($journalEntry->id);
+
+                AuditLog::create([
+                    'company_id' => $companyId,
+                    'user_id' => Auth::id(),
+                    'action' => 'supplier_invoice_accrual_posted',
+                    'auditable_type' => SupplierInvoice::class,
+                    'auditable_id' => $lockedInvoice->id,
+                    'new_values' => [
+                        'invoice_number' => $lockedInvoice->invoice_number,
+                        'journal_entry_id' => $journalEntry->id,
+                        'amount' => $lockedInvoice->total_amount,
+                    ],
+                ]);
+            }
+        });
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Supplier Invoice {$invoice->invoice_number} approved successfully.",
+                'status' => 'approved',
+            ]);
+        }
+
+        return back()->with('success', "Supplier Invoice {$invoice->invoice_number} approved successfully.");
+    }
+
+    public function recordPayment(Request $request, SupplierInvoice $invoice): JsonResponse|RedirectResponse
+    {
+        $this->authorizeSupplierInvoice();
+
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'payment_date' => 'required|date',
+            'payment_mode' => 'required|string|in:bank_transfer,neft_rtgs,cheque,upi,cash',
+            'reference_number' => 'nullable|string|max:100',
+            'notes' => 'nullable|string',
+        ]);
+
+        if ($invoice->status === 'pending_approval') {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => "Supplier invoice {$invoice->invoice_number} must be approved before recording payment."], 422);
+            }
+            return back()->withErrors(['status' => "Supplier invoice {$invoice->invoice_number} must be approved before recording payment."]);
+        }
+
+        if ($invoice->status === 'paid') {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => "Supplier invoice {$invoice->invoice_number} is already fully paid."], 422);
+            }
+            return back()->withErrors(['status' => "Supplier invoice {$invoice->invoice_number} is already fully paid."]);
+        }
+
+        $paymentAmount = round((float) $validated['amount'], 2);
+        $remainingBalance = round((float) ($invoice->total_amount - $invoice->paid_amount), 2);
+
+        if ($paymentAmount > $remainingBalance + 0.001) {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => "Payment amount (₹" . number_format($paymentAmount, 2) . ") exceeds remaining unpaid balance of ₹" . number_format($remainingBalance, 2) . "."], 422);
+            }
+            return back()->withInput()->withErrors(['amount' => "Payment amount (₹" . number_format($paymentAmount, 2) . ") exceeds remaining unpaid balance of ₹" . number_format($remainingBalance, 2) . "."]);
+        }
+
+        $result = DB::transaction(function () use ($invoice, $validated, $paymentAmount) {
+            $lockedInvoice = SupplierInvoice::where('id', $invoice->id)->lockForUpdate()->firstOrFail();
+
+            $companyId = $lockedInvoice->company_id ?? $this->getCompanyId();
+
+            // 1. Record payment transaction voucher in payments table
+            $paymentVoucher = Payment::create([
+                'company_id' => $companyId,
+                'payment_voucher_no' => 'PV-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                'payable_type' => 'supplier_invoices',
+                'payable_id' => $lockedInvoice->id,
+                'payment_date' => $validated['payment_date'],
+                'amount' => $paymentAmount,
+                'payment_mode' => $validated['payment_mode'],
+                'reference_number' => $validated['reference_number'] ?? null,
+                'paid_by' => Auth::id(),
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            // 2. Update SupplierInvoice paid_amount and status
+            $newPaidAmount = round((float) $lockedInvoice->paid_amount + $paymentAmount, 2);
+            $newStatus = ($newPaidAmount >= (float) $lockedInvoice->total_amount - 0.001) ? 'paid' : 'partially_paid';
+
+            $lockedInvoice->update([
+                'paid_amount' => $newPaidAmount,
+                'status' => $newStatus,
+            ]);
+
+            // 3. Post Balanced GL Journal Entry: Dr 2020 (Accounts Payable), Cr 1010 (Bank Account)
+            $apAccount = Account::where('company_id', $companyId)->where('code', '2020')->first();
+            $bankAccount = Account::where('company_id', $companyId)->where('code', '1010')->first();
+
+            if ($apAccount && $bankAccount && $paymentAmount > 0) {
+                $journalEntry = JournalEntry::create([
+                    'company_id' => $companyId,
+                    'entry_number' => 'JV-' . date('Y') . '-' . strtoupper(Str::random(5)),
+                    'entry_date' => $validated['payment_date'],
+                    'narration' => "Supplier payment for {$lockedInvoice->invoice_number} via {$validated['payment_mode']}",
+                    'total_amount' => $paymentAmount,
+                    'status' => 'posted',
+                    'created_by' => Auth::id(),
+                ]);
+
+                // Debit Accounts Payable (reduces liability)
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $apAccount->id,
+                    'debit' => $paymentAmount,
+                    'credit' => 0.00,
+                    'description' => "Settlement of invoice {$lockedInvoice->invoice_number}",
+                ]);
+
+                // Credit Bank Account (reduces asset)
+                JournalEntryLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'account_id' => $bankAccount->id,
+                    'debit' => 0.00,
+                    'credit' => $paymentAmount,
+                    'description' => "Bank payment for invoice {$lockedInvoice->invoice_number}",
+                ]);
+
+                JournalEntry::lockAfterCreation($journalEntry->id);
+            }
+
+            AuditLog::create([
+                'company_id' => $companyId,
+                'user_id' => Auth::id(),
+                'action' => 'supplier_invoice_payment_recorded',
+                'auditable_type' => SupplierInvoice::class,
+                'auditable_id' => $lockedInvoice->id,
+                'new_values' => [
+                    'invoice_number' => $lockedInvoice->invoice_number,
+                    'payment_amount' => $paymentAmount,
+                    'total_paid' => $newPaidAmount,
+                    'status' => $newStatus,
+                    'voucher_no' => $paymentVoucher->payment_voucher_no,
+                ],
+            ]);
+
+            return [
+                'status' => $newStatus,
+                'paid_amount' => $newPaidAmount,
+                'voucher_no' => $paymentVoucher->payment_voucher_no,
+            ];
+        });
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Payment of ₹" . number_format($paymentAmount, 2) . " recorded successfully.",
+                'data' => $result,
+            ]);
+        }
+
+        return back()->with('success', "Payment of ₹" . number_format($paymentAmount, 2) . " recorded under voucher {$result['voucher_no']}.");
     }
 
     public function supplierInvoices(Request $request): View
     {
         $this->authorizeSupplierInvoice();
+        $companyId = $this->getCompanyId();
 
-        $invoices = SupplierInvoice::with(['supplier', 'purchaseOrder'])
+        $invoices = SupplierInvoice::where('company_id', $companyId)
+            ->with(['supplier', 'purchaseOrder'])
             ->latest('invoice_date')
             ->paginate(15);
 

@@ -18,21 +18,33 @@ use Illuminate\View\View;
 
 class AttendanceController extends Controller
 {
+    protected function getCompanyId(): int
+    {
+        $companyId = session('current_company_id') ?? Auth::user()?->currentCompany()?->id ?? \App\Models\Company::configuredCompanyId();
+        if (! $companyId) {
+            abort(403, 'No active company workspace resolved.');
+        }
+
+        return (int) $companyId;
+    }
+
     public function index(Request $request): View
     {
+        $companyId = $this->getCompanyId();
         $selectedDate = $request->input('date', Carbon::today()->toDateString());
 
-        $attendance = DailyAttendance::with(['employee', 'site', 'project'])
+        $attendance = DailyAttendance::where('company_id', $companyId)
+            ->with(['employee', 'site', 'project'])
             ->whereDate('attendance_date', $selectedDate)
             ->latest()
             ->paginate(15)
             ->withQueryString();
 
         $stats = [
-            'present' => DailyAttendance::whereDate('attendance_date', $selectedDate)->where('status', 'present')->count(),
-            'half_day' => DailyAttendance::whereDate('attendance_date', $selectedDate)->where('status', 'half_day')->count(),
-            'absent' => DailyAttendance::whereDate('attendance_date', $selectedDate)->where('status', 'absent')->count(),
-            'total_workers' => Employee::where('status', 'active')->count(),
+            'present' => DailyAttendance::where('company_id', $companyId)->whereDate('attendance_date', $selectedDate)->where('status', 'present')->count(),
+            'half_day' => DailyAttendance::where('company_id', $companyId)->whereDate('attendance_date', $selectedDate)->where('status', 'half_day')->count(),
+            'absent' => DailyAttendance::where('company_id', $companyId)->whereDate('attendance_date', $selectedDate)->where('status', 'absent')->count(),
+            'total_workers' => Employee::where('company_id', $companyId)->where('status', 'active')->count(),
         ];
 
         return view('attendance.index', compact('attendance', 'selectedDate', 'stats'));
@@ -40,17 +52,20 @@ class AttendanceController extends Controller
 
     public function musterRoll(Request $request): View
     {
-        $sites = Site::orderBy('name')->get();
-        $selectedSite = $request->site_id ? Site::find($request->site_id) : $sites->first();
+        $companyId = $this->getCompanyId();
+        $sites = Site::where('company_id', $companyId)->orderBy('name')->get();
+        $selectedSite = $request->site_id ? Site::where('company_id', $companyId)->find($request->site_id) : $sites->first();
         $selectedDate = $request->input('date', Carbon::today()->toDateString());
 
-        $employees = Employee::where('status', 'active')
+        $employees = Employee::where('company_id', $companyId)
+            ->where('status', 'active')
             ->when($selectedSite, function ($q) use ($selectedSite) {
                 $q->where('assigned_site_id', $selectedSite->id);
             })
             ->get();
 
-        $existingAttendance = DailyAttendance::whereDate('attendance_date', $selectedDate)
+        $existingAttendance = DailyAttendance::where('company_id', $companyId)
+            ->whereDate('attendance_date', $selectedDate)
             ->get()
             ->keyBy('employee_id');
 
@@ -59,6 +74,7 @@ class AttendanceController extends Controller
 
     public function storeMuster(Request $request): JsonResponse|RedirectResponse
     {
+        $companyId = $this->getCompanyId();
         $validated = $request->validate([
             'date' => 'required|date',
             'site_id' => 'required|exists:sites,id',
@@ -68,7 +84,7 @@ class AttendanceController extends Controller
         ]);
 
         $date = $validated['date'];
-        $site = Site::findOrFail($validated['site_id']);
+        $site = Site::where('company_id', $companyId)->findOrFail($validated['site_id']);
 
         // 1. Scope authorization: verify user is assigned supervisor, PM, or admin
         $user = Auth::user();
@@ -79,7 +95,8 @@ class AttendanceController extends Controller
         }
 
         // 2. Data integrity: prevent tampering with historical attendance covered by disbursed payroll
-        $isPeriodDisbursed = \App\Models\PayrollPeriod::where('status', 'disbursed')
+        $isPeriodDisbursed = \App\Models\PayrollPeriod::where('company_id', $companyId)
+            ->where('status', 'disbursed')
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
             ->exists();
@@ -119,20 +136,25 @@ class AttendanceController extends Controller
                 }
             }
 
-            $workflowAction = $request->input('action', 'approve');
-            $statusToSet = 'approved';
-            $approvedBy = Auth::id();
-            $approvedAt = now();
-            $submittedAt = now();
+            $workflowAction = $request->input('action');
+            $isApprover = $user && ($user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'project_manager'], true));
 
-            if ($workflowAction === 'save_draft') {
+            if ($workflowAction === 'approve' || ($isApprover && $workflowAction === null)) {
+                $statusToSet = 'approved';
+                $approvedBy = Auth::id();
+                $approvedAt = now();
+                $isOtApproved = ($data['overtime_hours'] ?? 0) > 0;
+            } elseif ($workflowAction === 'save_draft') {
                 $statusToSet = 'draft';
                 $approvedBy = null;
                 $approvedAt = null;
-            } elseif ($workflowAction === 'submit') {
+                $isOtApproved = false;
+            } else {
+                // Regular submission from supervisor requires review and authorization
                 $statusToSet = 'pending_approval';
                 $approvedBy = null;
                 $approvedAt = null;
+                $isOtApproved = false;
             }
 
             $recordAttributes = [
@@ -141,10 +163,10 @@ class AttendanceController extends Controller
                 'status' => $data['status'],
                 'worked_hours' => $data['status'] === 'present' ? 8.00 : ($data['status'] === 'half_day' ? 4.00 : 0.00),
                 'overtime_hours' => $data['overtime_hours'] ?? 0.00,
-                'is_overtime_approved' => ($data['overtime_hours'] ?? 0) > 0,
-                'overtime_approved_by' => Auth::id(),
+                'is_overtime_approved' => $isOtApproved,
+                'overtime_approved_by' => $isOtApproved ? Auth::id() : null,
                 'approval_status' => $statusToSet,
-                'submitted_at' => $submittedAt,
+                'submitted_at' => now(),
                 'approved_by' => $approvedBy,
                 'approved_at' => $approvedAt,
             ];
