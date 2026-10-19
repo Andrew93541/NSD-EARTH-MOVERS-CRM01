@@ -48,8 +48,11 @@ class MaterialIssueController extends Controller
             return true;
         }
 
-        if (is_array($project->assigned_team) && in_array($user->id, $project->assigned_team)) {
-            return true;
+        if (is_array($project->assigned_team)) {
+            $assignedTeamIds = array_map('intval', $project->assigned_team);
+            if (in_array((int) $user->id, $assignedTeamIds, true)) {
+                return true;
+            }
         }
 
         return false;
@@ -107,7 +110,7 @@ class MaterialIssueController extends Controller
         $roleSlug = $user?->currentRole()?->slug;
 
         // Site supervisors must not issue or return stock unless they hold explicit permission
-        if ($roleSlug === 'site_supervisor' && ! $user->hasPermission('inventory.issue') && ! $user->hasPermission('*')) {
+        if (($roleSlug === 'site_supervisor' || str_contains((string) $roleSlug, 'supervisor')) && ! $user->hasPermission('inventory.issue') && ! $user->hasPermission('*')) {
             abort(403, 'Unauthorized. Site supervisors are not permitted to issue or return warehouse stock without explicit inventory.issue permission.');
         }
 
@@ -127,7 +130,7 @@ class MaterialIssueController extends Controller
             abort(403, "Unauthorized. You are not assigned to manage project '{$project->name}'.");
         }
 
-        if ($site && $roleSlug === 'site_supervisor' && ! $this->isUserAssignedToSite($user, $site)) {
+        if ($site && ($roleSlug === 'site_supervisor' || str_contains((string) $roleSlug, 'supervisor')) && ! $this->isUserAssignedToSite($user, $site)) {
             abort(403, "Unauthorized. You are not assigned to site '{$site->name}'.");
         }
     }
@@ -160,7 +163,7 @@ class MaterialIssueController extends Controller
             abort(403, 'Unauthorized. You are not assigned to manage the project associated with this issue note.');
         }
 
-        if ($roleSlug === 'site_supervisor') {
+        if ($roleSlug === 'site_supervisor' || str_contains((string) $roleSlug, 'supervisor')) {
             if ($materialIssue->site && $this->isUserAssignedToSite($user, $materialIssue->site)) {
                 return;
             }
@@ -192,7 +195,13 @@ class MaterialIssueController extends Controller
             $query->whereIn('project_id', $assignedProjectIds);
         } elseif ($roleSlug === 'site_supervisor' && ! $user->hasPermission('*') && ! in_array($roleSlug, ['owner', 'admin'], true)) {
             $assignedSiteIds = Site::where('company_id', $companyId)
-                ->where('supervisor_id', $user->id)
+                ->where(function ($q) use ($user) {
+                    $q->where('supervisor_id', $user->id)
+                        ->orWhereHas('project', function ($pq) use ($user) {
+                            $pq->where('manager_id', $user->id)
+                                ->orWhereJsonContains('assigned_team', $user->id);
+                        });
+                })
                 ->pluck('id');
 
             $query->whereIn('site_id', $assignedSiteIds);
@@ -275,7 +284,7 @@ class MaterialIssueController extends Controller
         $projects = $projectsQuery->orderBy('name')->get();
 
         $materials = Material::where('company_id', $companyId)->where('is_active', true)->with('category')->orderBy('name')->get();
-        $users = User::whereHas('companies', fn($q) => $q->where('companies.id', $companyId)->wherePivot('status', 'active'))->orderBy('name')->get();
+        $users = User::whereHas('companies', fn($q) => $q->where('companies.id', $companyId)->where('company_user.status', 'active'))->orderBy('name')->get();
 
         $year = date('Y');
         $count = MaterialIssue::where('company_id', $companyId)->whereYear('issue_date', $year)->count() + 1;
@@ -284,6 +293,36 @@ class MaterialIssueController extends Controller
         $selectedProjectId = $request->input('project_id');
         $selectedSiteId = $request->input('site_id');
         $selectedWarehouseId = $request->input('warehouse_id');
+
+        if ($selectedProjectId) {
+            $selProj = Project::where('id', $selectedProjectId)->where('company_id', $companyId)->first();
+            if (! $selProj) {
+                abort(404, 'Project not found in active company.');
+            }
+            if ($roleSlug === 'project_manager' && ! $user->hasPermission('*') && ! in_array($roleSlug, ['owner', 'admin'], true) && ! $this->isUserAssignedToProject($user, $selProj)) {
+                abort(403, "Unauthorized. You are not assigned to project '{$selProj->name}'.");
+            }
+        }
+
+        if ($selectedSiteId) {
+            $selSite = Site::where('id', $selectedSiteId)->where('company_id', $companyId)->first();
+            if (! $selSite) {
+                abort(404, 'Site not found in active company.');
+            }
+            if ($roleSlug === 'site_supervisor' && ! $user->hasPermission('*') && ! in_array($roleSlug, ['owner', 'admin'], true) && ! $this->isUserAssignedToSite($user, $selSite)) {
+                abort(403, "Unauthorized. You are not assigned to site '{$selSite->name}'.");
+            }
+            if ($roleSlug === 'project_manager' && ! $user->hasPermission('*') && ! in_array($roleSlug, ['owner', 'admin'], true) && $selSite->project && ! $this->isUserAssignedToProject($user, $selSite->project)) {
+                abort(403, "Unauthorized. You are not assigned to manage the project for site '{$selSite->name}'.");
+            }
+        }
+
+        if ($selectedWarehouseId) {
+            $selWarehouse = Warehouse::where('id', $selectedWarehouseId)->where('company_id', $companyId)->first();
+            if (! $selWarehouse) {
+                abort(404, 'Warehouse not found in active company.');
+            }
+        }
 
         return view('inventory.material-issues.create', compact(
             'warehouses',
@@ -331,6 +370,9 @@ class MaterialIssueController extends Controller
         if (! $warehouse) {
             throw ValidationException::withMessages(['warehouse_id' => 'Selected warehouse does not belong to the active company.']);
         }
+        if (! $warehouse->is_active) {
+            throw ValidationException::withMessages(['warehouse_id' => 'Selected warehouse is not active.']);
+        }
 
         // Validate project belongs to active NSD company
         $project = Project::where('id', $validated['project_id'])->where('company_id', $companyId)->first();
@@ -346,10 +388,37 @@ class MaterialIssueController extends Controller
             ]);
         }
 
+        // Validate requester belongs to active NSD company
+        if (! empty($validated['requested_by'])) {
+            $requesterBelongs = DB::table('company_user')
+                ->where('user_id', $validated['requested_by'])
+                ->where('company_id', $companyId)
+                ->where('status', 'active')
+                ->exists();
+
+            if (! $requesterBelongs) {
+                throw ValidationException::withMessages([
+                    'requested_by' => 'The selected requester does not belong to the active company.',
+                ]);
+            }
+        }
+
         // Enforce user assignment to project/site and dispatch execution rights
         $this->authorizeIssueExecution($project, $site);
 
         $issue = DB::transaction(function () use ($validated, $warehouse, $project, $site, $companyId) {
+            // Re-lock warehouse record inside transaction
+            $lockedWarehouse = Warehouse::where('id', $warehouse->id)
+                ->where('company_id', $companyId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedWarehouse || ! $lockedWarehouse->is_active) {
+                throw ValidationException::withMessages([
+                    'warehouse_id' => 'Selected warehouse is unavailable or inactive.',
+                ]);
+            }
+
             // Aggregate requested and issued quantities per material to prevent multi-line bypass
             $combinedIssuedByMaterial = [];
             $combinedRequestedByMaterial = [];
@@ -369,6 +438,7 @@ class MaterialIssueController extends Controller
 
             $materials = Material::whereIn('id', $materialIds)
                 ->where('company_id', $companyId)
+                ->orderBy('id')
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('id');
@@ -385,14 +455,14 @@ class MaterialIssueController extends Controller
                 $material = $materials->get($matId);
 
                 $inStock = StockLedgerEntry::where('material_id', $matId)
-                    ->where('warehouse_id', $warehouse->id)
+                    ->where('warehouse_id', $lockedWarehouse->id)
                     ->where('company_id', $companyId)
                     ->where('direction', 'in')
                     ->lockForUpdate()
                     ->sum('quantity');
 
                 $outStock = StockLedgerEntry::where('material_id', $matId)
-                    ->where('warehouse_id', $warehouse->id)
+                    ->where('warehouse_id', $lockedWarehouse->id)
                     ->where('company_id', $companyId)
                     ->where('direction', 'out')
                     ->lockForUpdate()
@@ -405,7 +475,7 @@ class MaterialIssueController extends Controller
 
                 if ($totalToIssue > $available) {
                     throw ValidationException::withMessages([
-                        'items' => "Insufficient stock for {$material->name} in {$warehouse->name}. Available: {$available} {$material->unit_of_measure}, Combined Requested to Issue: {$totalToIssue} {$material->unit_of_measure}.",
+                        'items' => "Insufficient stock for {$material->name} in {$lockedWarehouse->name}. Available: {$available} {$material->unit_of_measure}, Combined Requested to Issue: {$totalToIssue} {$material->unit_of_measure}.",
                     ]);
                 }
             }
@@ -414,7 +484,7 @@ class MaterialIssueController extends Controller
             $materialIssue = MaterialIssue::create([
                 'company_id' => $companyId,
                 'issue_number' => $validated['issue_number'],
-                'warehouse_id' => $warehouse->id,
+                'warehouse_id' => $lockedWarehouse->id,
                 'project_id' => $project->id,
                 'site_id' => $site->id,
                 'issue_date' => $validated['issue_date'],
@@ -457,7 +527,7 @@ class MaterialIssueController extends Controller
                 StockLedgerEntry::create([
                     'company_id' => $companyId,
                     'material_id' => $material->id,
-                    'warehouse_id' => $warehouse->id,
+                    'warehouse_id' => $lockedWarehouse->id,
                     'entry_date' => $validated['issue_date'],
                     'transaction_type' => 'site_issue',
                     'reference_type' => 'material_issues',
