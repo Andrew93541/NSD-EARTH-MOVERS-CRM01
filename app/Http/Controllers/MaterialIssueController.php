@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\MaterialStockUpdated;
 use App\Models\AuditLog;
 use App\Models\Company;
 use App\Models\Material;
@@ -561,6 +562,29 @@ class MaterialIssueController extends Controller
 
             return $materialIssue;
         });
+
+        foreach ($issue->items as $item) {
+            try {
+                $mat = $item->material;
+                $curBalance = StockLedgerEntry::where('material_id', $item->material_id)
+                    ->where('warehouse_id', $issue->warehouse_id)
+                    ->where('company_id', $companyId)
+                    ->latest('id')
+                    ->value('balance_quantity') ?? 0;
+                $isLow = $mat && $mat->min_stock_level > 0 && $curBalance <= $mat->min_stock_level;
+
+                broadcast(new MaterialStockUpdated(
+                    $companyId,
+                    $issue->warehouse_id,
+                    $warehouse->name ?? 'Warehouse',
+                    $item->material_id,
+                    $mat?->name ?? 'Material',
+                    (float) $curBalance,
+                    $mat?->unit_of_measure ?? 'units',
+                    (bool) $isLow
+                ));
+            } catch (\Throwable $e) {}
+        }
 
         return redirect()->route('material-issues.show', $issue)
             ->with('success', "Material Issue {$issue->issue_number} recorded successfully.");

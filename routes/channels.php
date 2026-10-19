@@ -78,6 +78,13 @@ Broadcast::channel('project.{projectId}', function (User $user, $projectId) {
         return true;
     }
 
+    if (is_array($project->assigned_team)) {
+        $assignedTeamIds = array_map('intval', $project->assigned_team);
+        if (in_array((int) $user->id, $assignedTeamIds, true)) {
+            return true;
+        }
+    }
+
     $role = Role::find($membership->pivot->role_id);
     if ($role && (in_array($role->slug, ['owner', 'admin'], true) || $role->hasPermission('projects.*') || $role->hasPermission('projects.view'))) {
         return true;
@@ -106,8 +113,17 @@ Broadcast::channel('site.{siteId}', function (User $user, $siteId) {
         return true;
     }
 
-    if ($site->project && (int) $site->project->manager_id === (int) $user->id) {
-        return true;
+    if ($site->project) {
+        if ((int) $site->project->manager_id === (int) $user->id) {
+            return true;
+        }
+
+        if (is_array($site->project->assigned_team)) {
+            $assignedTeamIds = array_map('intval', $site->project->assigned_team);
+            if (in_array((int) $user->id, $assignedTeamIds, true)) {
+                return true;
+            }
+        }
     }
 
     $role = Role::find($membership->pivot->role_id);

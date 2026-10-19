@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Storage;
+
 class User extends Authenticatable
 {
     use HasFactory, Notifiable;
@@ -15,6 +18,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'phone',
+        'avatar',
+        'preferences',
     ];
 
     protected $hidden = [
@@ -22,12 +28,46 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    protected $appends = [
+        'avatar_url',
+        'initials',
+    ];
+
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'preferences' => 'array',
         ];
+    }
+
+    public function employee(): HasOne
+    {
+        return $this->hasOne(Employee::class);
+    }
+
+    public function getAvatarUrlAttribute(): ?string
+    {
+        if ($this->avatar && Storage::disk('public')->exists($this->avatar)) {
+            return Storage::disk('public')->url($this->avatar);
+        }
+        return null;
+    }
+
+    public function getInitialsAttribute(): string
+    {
+        $words = preg_split('/\s+/', trim((string) $this->name));
+        $initials = '';
+        if (! empty($words[0])) {
+            $initials .= mb_substr($words[0], 0, 1);
+        }
+        if (! empty($words[1])) {
+            $initials .= mb_substr($words[1], 0, 1);
+        } elseif (mb_strlen($words[0] ?? '') > 1) {
+            $initials .= mb_substr($words[0], 1, 1);
+        }
+        return strtoupper($initials ?: 'U');
     }
 
     public function companies(): BelongsToMany

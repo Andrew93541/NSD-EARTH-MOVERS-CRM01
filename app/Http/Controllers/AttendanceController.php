@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\AttendanceUpdated;
 use App\Models\AppNotification;
 use App\Models\AttendancePunch;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\Site;
+use App\Services\NotificationService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -54,7 +57,7 @@ class AttendanceController extends Controller
         return view('attendance.muster-roll', compact('sites', 'selectedSite', 'selectedDate', 'employees', 'existingAttendance'));
     }
 
-    public function storeMuster(Request $request): RedirectResponse
+    public function storeMuster(Request $request): JsonResponse|RedirectResponse
     {
         $validated = $request->validate([
             'date' => 'required|date',
@@ -82,6 +85,12 @@ class AttendanceController extends Controller
             ->exists();
 
         if ($isPeriodDisbursed) {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Attendance for {$date} cannot be modified because the corresponding payroll period has already been finalized and disbursed.",
+                ], 422);
+            }
             return back()->withInput()->withErrors([
                 'date' => "Attendance for {$date} cannot be modified because the corresponding payroll period has already been finalized and disbursed.",
             ]);
@@ -108,7 +117,7 @@ class AttendanceController extends Controller
 
         $pmId = $site->project?->manager_id;
         if ($pmId && (int) $pmId !== (int) Auth::id()) {
-            AppNotification::create([
+            $notification = AppNotification::create([
                 'company_id' => $site->company_id,
                 'user_id' => $pmId,
                 'title' => 'Muster Roll Submitted',
@@ -116,6 +125,23 @@ class AttendanceController extends Controller
                 'type' => 'info',
                 'action_url' => route('attendance.muster', ['site_id' => $site->id, 'date' => $date]),
                 'is_read' => false,
+            ]);
+            NotificationService::broadcastNotification($notification);
+        }
+
+        try {
+            broadcast(new AttendanceUpdated($site->company_id, $site->id, $site->name, $date, count($validated['attendance'])));
+        } catch (\Throwable $e) {
+            // Graceful fallback if Reverb is offline
+        }
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Muster roll attendance submitted and synchronized with payroll.',
+                'date' => $date,
+                'site_id' => $site->id,
+                'count' => count($validated['attendance']),
             ]);
         }
 

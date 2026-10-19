@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ProjectStatusUpdated;
 use App\Models\AppNotification;
 use App\Models\Client;
 use App\Models\Expense;
@@ -9,6 +10,8 @@ use App\Models\Project;
 use App\Models\PurchaseRequest;
 use App\Models\SupplierInvoice;
 use App\Models\User;
+use App\Services\NotificationService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -257,7 +260,7 @@ class ProjectController extends Controller
         return view('projects.edit', compact('project', 'clients', 'managers'));
     }
 
-    public function update(Request $request, Project $project): RedirectResponse
+    public function update(Request $request, Project $project): JsonResponse|RedirectResponse
     {
         $this->authorizeManage();
 
@@ -287,15 +290,36 @@ class ProjectController extends Controller
         $oldStatus = $project->status;
         $project->update($validated);
 
-        if ($oldStatus !== $validated['status'] && $project->manager_id) {
-            AppNotification::create([
-                'company_id' => $project->company_id,
-                'user_id' => $project->manager_id,
-                'title' => 'Project Status Changed',
-                'message' => "Project '{$project->name}' status changed to " . ucfirst(str_replace('_', ' ', $validated['status'])) . ".",
-                'type' => in_array($validated['status'], ['at_risk', 'delayed']) ? 'danger' : 'info',
-                'action_url' => route('projects.show', $project),
-                'is_read' => false,
+        if ($oldStatus !== $validated['status']) {
+            if ($project->manager_id) {
+                $notification = AppNotification::create([
+                    'company_id' => $project->company_id,
+                    'user_id' => $project->manager_id,
+                    'title' => 'Project Status Changed',
+                    'message' => "Project '{$project->name}' status changed to " . ucfirst(str_replace('_', ' ', $validated['status'])) . ".",
+                    'type' => in_array($validated['status'], ['at_risk', 'delayed']) ? 'danger' : 'info',
+                    'action_url' => route('projects.show', $project),
+                    'is_read' => false,
+                ]);
+                NotificationService::broadcastNotification($notification);
+            }
+
+            try {
+                broadcast(new ProjectStatusUpdated($project));
+            } catch (\Throwable $e) {}
+        }
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Project updated successfully.',
+                'project' => [
+                    'id' => $project->id,
+                    'name' => $project->name,
+                    'status' => $project->status,
+                    'status_label' => ucfirst(str_replace('_', ' ', $project->status)),
+                    'progress_percent' => (int) $project->progress_percent,
+                ],
             ]);
         }
 

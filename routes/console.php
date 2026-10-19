@@ -40,3 +40,18 @@ Schedule::command('buildflow:verify-recovery')
     ->weeklyOn(0, '03:00')
     ->withoutOverlapping(60)
     ->onOneServer();
+
+/*
+|--------------------------------------------------------------------------
+| Operational Reminders & Low-Stock Alerts Schedule
+|--------------------------------------------------------------------------
+|
+| Scan inventory thresholds, pending requisitions, and payment due dates
+| every 4 hours during operational site working hours.
+|
+*/
+Schedule::command('buildflow:send-reminders')
+    ->everyFourHours()
+    ->withoutOverlapping(15)
+    ->onOneServer()
+    ->runInBackground();

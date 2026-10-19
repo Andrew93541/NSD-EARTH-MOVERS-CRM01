@@ -18,7 +18,10 @@ use App\Models\Warehouse;
 use App\Services\ApprovalPolicyService;
 use App\Services\ProjectBudgetService;
 use App\Services\StockAvailabilityService;
+use App\Events\PurchaseRequestUpdated;
+use App\Services\NotificationService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -462,7 +465,7 @@ class PurchaseRequestController extends Controller
             ->with('success', "Request {$request->pr_number} submitted for Level 1 authorization.");
     }
 
-    public function approve(Request $httpRequest, PurchaseRequest $request): RedirectResponse
+    public function approve(Request $httpRequest, PurchaseRequest $request): JsonResponse|RedirectResponse
     {
         if ($request->status !== 'pending') {
             return back()->withErrors(['status' => 'Only pending requests can be approved.']);
@@ -513,7 +516,7 @@ class PurchaseRequestController extends Controller
         ]);
 
         if ($res['is_final']) {
-            AppNotification::create([
+            $notification = AppNotification::create([
                 'company_id' => $request->company_id,
                 'user_id' => $request->requested_by,
                 'title' => 'Material Request Fully Approved',
@@ -522,15 +525,34 @@ class PurchaseRequestController extends Controller
                 'action_url' => route('purchase-requests.show', $request),
                 'is_read' => false,
             ]);
+            NotificationService::broadcastNotification($notification);
+        }
+
+        try {
+            broadcast(new PurchaseRequestUpdated($request));
+        } catch (\Throwable $e) {}
+
+        if ($httpRequest->wantsJson() || $httpRequest->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => $res['message'],
+                'status' => $request->status,
+                'status_label' => ucfirst(str_replace('_', ' ', $request->status)),
+                'is_final' => $res['is_final'],
+                'current_level' => $request->current_approval_level,
+            ]);
         }
 
         return redirect()->route('purchase-requests.show', $request)
             ->with('success', $res['message']);
     }
 
-    public function reject(Request $httpRequest, PurchaseRequest $request): RedirectResponse
+    public function reject(Request $httpRequest, PurchaseRequest $request): JsonResponse|RedirectResponse
     {
         if ($request->status !== 'pending') {
+            if ($httpRequest->wantsJson() || $httpRequest->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Only pending requests can be rejected.'], 422);
+            }
             return back()->withErrors(['status' => 'Only pending requests can be rejected.']);
         }
 
@@ -580,7 +602,7 @@ class PurchaseRequestController extends Controller
         ]);
 
         // Notify Requester
-        AppNotification::create([
+        $notification = AppNotification::create([
             'company_id' => $request->company_id,
             'user_id' => $request->requested_by,
             'title' => 'Material Request Rejected',
@@ -589,26 +611,57 @@ class PurchaseRequestController extends Controller
             'action_url' => route('purchase-requests.show', $request),
             'is_read' => false,
         ]);
+        NotificationService::broadcastNotification($notification);
+
+        try {
+            broadcast(new PurchaseRequestUpdated($request));
+        } catch (\Throwable $e) {}
+
+        if ($httpRequest->wantsJson() || $httpRequest->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Purchase Request {$request->pr_number} has been rejected.",
+                'status' => 'rejected',
+                'status_label' => 'Rejected',
+                'rejection_reason' => $validated['rejection_reason'],
+            ]);
+        }
 
         return redirect()->route('purchase-requests.show', $request)
             ->with('warning', "Purchase Request {$request->pr_number} has been rejected.");
     }
 
-    public function cancel(PurchaseRequest $request): RedirectResponse
+    public function cancel(Request $httpRequest, PurchaseRequest $request): JsonResponse|RedirectResponse
     {
         $user = Auth::user();
         $roleSlug = $user->currentRole()?->slug;
         $isAdminOrOwner = $user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin']);
 
-        if ($request->requested_by !== $user->id && !$isAdminOrOwner) {
+        if ((int) $request->requested_by !== (int) $user->id && !$isAdminOrOwner) {
             abort(403, 'You are not authorized to cancel this purchase request.');
         }
 
         if (!in_array($request->status, ['draft', 'pending'])) {
+            if ($httpRequest->wantsJson() || $httpRequest->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Approved or processed requests cannot be cancelled.'], 422);
+            }
             return back()->withErrors(['status' => 'Approved or processed requests cannot be cancelled.']);
         }
 
         $request->update(['status' => 'cancelled']);
+
+        try {
+            broadcast(new PurchaseRequestUpdated($request));
+        } catch (\Throwable $e) {}
+
+        if ($httpRequest->wantsJson() || $httpRequest->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Purchase Request {$request->pr_number} was cancelled.",
+                'status' => 'cancelled',
+                'status_label' => 'Cancelled',
+            ]);
+        }
 
         return redirect()->route('purchase-requests.index')
             ->with('info', "Purchase Request {$request->pr_number} was cancelled.");

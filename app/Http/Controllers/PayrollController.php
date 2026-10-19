@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\PayrollStatusUpdated;
 use App\Models\AppNotification;
 use App\Models\DailyAttendance;
 use App\Models\Employee;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollRecord;
+use App\Services\NotificationService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -203,11 +206,14 @@ class PayrollController extends Controller
         return view('payroll.show', compact('period'));
     }
 
-    public function approve(PayrollPeriod $period): RedirectResponse
+    public function approve(Request $request, PayrollPeriod $period): JsonResponse|RedirectResponse
     {
         $this->authorizePayrollApprove();
 
         if ($period->status === 'disbursed') {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Disbursed payroll periods cannot be modified.'], 422);
+            }
             return back()->withErrors(['status' => 'Disbursed payroll periods cannot be modified.']);
         }
 
@@ -220,34 +226,62 @@ class PayrollController extends Controller
         $period->records()->update(['status' => 'approved']);
 
         if ($period->created_by) {
-            AppNotification::create([
+            $notification = AppNotification::create([
                 'company_id' => $period->company_id,
                 'user_id' => $period->created_by,
                 'title' => 'Payroll Batch Approved',
-                'message' => "Payroll batch '{$period->title}' has been approved.",
+                'message' => "Payroll batch '{$period->name}' has been approved.",
                 'type' => 'success',
                 'action_url' => route('payroll.show', $period),
                 'is_read' => false,
             ]);
+            NotificationService::broadcastNotification($notification);
+        }
+
+        try {
+            broadcast(new PayrollStatusUpdated($period));
+        } catch (\Throwable $e) {}
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Payroll batch '{$period->name}' approved successfully.",
+                'status' => 'approved',
+            ]);
         }
 
         return redirect()->route('payroll.show', $period)
-            ->with('success', "Payroll batch '{$period->title}' approved by " . (Auth::user()?->name ?? 'Authorized Officer'));
+            ->with('success', "Payroll batch '{$period->name}' approved by " . (Auth::user()?->name ?? 'Authorized Officer'));
     }
 
-    public function disburse(PayrollPeriod $period): RedirectResponse
+    public function disburse(Request $request, PayrollPeriod $period): JsonResponse|RedirectResponse
     {
         $this->authorizePayrollDisburse();
 
         if ($period->status !== 'approved') {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['success' => false, 'message' => 'Payroll must be approved before disbursement.'], 422);
+            }
             return back()->withErrors(['status' => 'Payroll must be approved before disbursement.']);
         }
 
         $period->update(['status' => 'disbursed']);
         $period->records()->update(['status' => 'paid']);
 
+        try {
+            broadcast(new PayrollStatusUpdated($period));
+        } catch (\Throwable $e) {}
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Payroll batch '{$period->name}' marked as disbursed and wages paid.",
+                'status' => 'disbursed',
+            ]);
+        }
+
         return redirect()->route('payroll.show', $period)
-            ->with('success', "Payroll batch '{$period->title}' marked as disbursed and wages paid.");
+            ->with('success', "Payroll batch '{$period->name}' marked as disbursed and wages paid.");
     }
 
     public function payslip(PayrollPeriod $period, PayrollRecord $record): View

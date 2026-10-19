@@ -1,10 +1,41 @@
 import Alpine from 'alpinejs';
 import Chart from 'chart.js/auto';
+import './echo';
 
 window.Alpine = Alpine;
 window.Chart = Chart;
 
-// Global Notification Center Alpine Component
+// Global Toast Notification Manager
+window.toastManager = function () {
+    return {
+        toasts: [],
+        init() {
+            window.addEventListener('show-toast', (e) => {
+                this.add(e.detail.message, e.detail.type || 'info', e.detail.duration || 4500);
+            });
+        },
+        add(message, type = 'info', duration = 4500) {
+            const id = Date.now() + Math.random();
+            const toast = { id, message, type, visible: true };
+            this.toasts.push(toast);
+
+            setTimeout(() => {
+                toast.visible = false;
+                setTimeout(() => {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                }, 300);
+            }, duration);
+        }
+    };
+};
+
+window.showToast = function (message, type = 'info', duration = 4500) {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { message, type, duration }
+    }));
+};
+
+// Global Notification Center & WebSocket Coordinator
 window.notificationCenter = function () {
     return {
         open: false,
@@ -44,21 +75,43 @@ window.notificationCenter = function () {
                     }
                 }
 
-                // Subscribe to user-specific private channel
+                // 1. Subscribe to user-specific private channel
                 const userChannel = window.Echo.private(`App.Models.User.${userId}`);
                 userChannel.listen('.NotificationDispatched', (e) => {
                     this.handleIncoming(e);
                 }).listen('NotificationDispatched', (e) => {
                     this.handleIncoming(e);
+                }).listen('.PurchaseRequestUpdated', (e) => {
+                    window.showToast(`Purchase Request ${e.pr_number} is now ${e.status_label}.`, 'info');
+                }).listen('PurchaseRequestUpdated', (e) => {
+                    window.showToast(`Purchase Request ${e.pr_number} is now ${e.status_label}.`, 'info');
                 });
 
-                // Subscribe to tenant company channel
+                // 2. Subscribe to tenant company channel
                 if (companyId) {
                     const companyChannel = window.Echo.private(`company.${companyId}`);
                     companyChannel.listen('.NotificationDispatched', (e) => {
                         this.handleIncoming(e);
                     }).listen('NotificationDispatched', (e) => {
                         this.handleIncoming(e);
+                    }).listen('.ProjectStatusUpdated', (e) => {
+                        window.showToast(`Project '${e.name}' status updated to ${e.status_label}.`, 'info');
+                        window.dispatchEvent(new CustomEvent('project-status-changed', { detail: e }));
+                    }).listen('ProjectStatusUpdated', (e) => {
+                        window.showToast(`Project '${e.name}' status updated to ${e.status_label}.`, 'info');
+                        window.dispatchEvent(new CustomEvent('project-status-changed', { detail: e }));
+                    }).listen('.MaterialStockUpdated', (e) => {
+                        if (e.is_low_stock) {
+                            window.showToast(`⚠️ Low Stock Alert: ${e.material_name} (${e.current_balance} ${e.unit_of_measure}) at ${e.warehouse_name}`, 'warning', 6000);
+                        }
+                    }).listen('MaterialStockUpdated', (e) => {
+                        if (e.is_low_stock) {
+                            window.showToast(`⚠️ Low Stock Alert: ${e.material_name} (${e.current_balance} ${e.unit_of_measure}) at ${e.warehouse_name}`, 'warning', 6000);
+                        }
+                    }).listen('.AttendanceUpdated', (e) => {
+                        window.showToast(`Daily attendance submitted for site ${e.site_name} (${e.records_count} workers).`, 'info');
+                    }).listen('AttendanceUpdated', (e) => {
+                        window.showToast(`Daily attendance submitted for site ${e.site_name} (${e.records_count} workers).`, 'info');
                     });
                 }
             }
@@ -71,6 +124,16 @@ window.notificationCenter = function () {
             // Reconcile when user refocuses window
             window.addEventListener('focus', () => {
                 this.fetchFeed();
+            });
+
+            // Clean up listeners on page unload
+            window.addEventListener('beforeunload', () => {
+                if (window.Echo && userId) {
+                    window.Echo.leave(`App.Models.User.${userId}`);
+                    if (companyId) {
+                        window.Echo.leave(`company.${companyId}`);
+                    }
+                }
             });
         },
 
@@ -104,7 +167,10 @@ window.notificationCenter = function () {
             }
             this.unreadCount++;
 
-            // Trigger micro-animation
+            // Trigger toast alert for important incoming notifications
+            window.showToast(event.title + ': ' + event.message, event.type || 'info');
+
+            // Trigger micro-animation on bell
             this.hasNewPing = true;
             setTimeout(() => {
                 this.hasNewPing = false;
@@ -144,6 +210,7 @@ window.notificationCenter = function () {
                         'X-Requested-With': 'XMLHttpRequest'
                     }
                 });
+                window.showToast('All notifications marked as read', 'success', 2500);
             } catch (e) {}
         },
 
@@ -192,9 +259,3 @@ window.darkModeManager = function () {
 
 // Start Alpine
 Alpine.start();
-
-/**
- * Echo exposes an expressive API for subscribing to channels and listening
- * for events that are broadcast by Laravel.
- */
-import './echo';

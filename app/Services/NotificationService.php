@@ -69,13 +69,11 @@ class NotificationService
     ): array {
         $role = Role::where('slug', $roleSlug)->first();
 
-        $query = User::whereHas('companies', function ($q) use ($companyId, $role, $roleSlug) {
+        $query = User::whereHas('companies', function ($q) use ($companyId, $role) {
             $q->where('companies.id', $companyId)
-                ->wherePivot('status', 'active');
+                ->where('company_user.status', 'active');
             if ($role) {
-                $q->where(function ($sub) use ($role, $roleSlug) {
-                    $sub->wherePivot('role_id', $role->id);
-                });
+                $q->where('company_user.role_id', $role->id);
             }
         });
 

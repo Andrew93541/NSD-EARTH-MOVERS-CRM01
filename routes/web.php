@@ -31,6 +31,7 @@ use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\MaterialIssueController;
 use App\Http\Controllers\CompanyProfileController;
+use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
 // Production Health Check (Infrastructure & Monitoring)
@@ -62,6 +63,14 @@ Route::middleware(['auth'])->group(function () {
     // Dashboard (Overview)
     Route::get('/', [DashboardController::class, 'index'])->name('home');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // User Profile & Account Settings
+    Route::prefix('profile')->name('profile.')->group(function () {
+        Route::get('/', [ProfileController::class, 'show'])->name('show');
+        Route::put('/', [ProfileController::class, 'update'])->name('update');
+        Route::put('/password', [ProfileController::class, 'updatePassword'])->name('password.update');
+        Route::put('/preferences', [ProfileController::class, 'updatePreferences'])->name('preferences.update');
+    });
 
     // Single Company Profile Module (NSD Earth Movers & Construction Ltd)
     Route::get('/company/profile', [CompanyProfileController::class, 'show'])->name('company.profile');
