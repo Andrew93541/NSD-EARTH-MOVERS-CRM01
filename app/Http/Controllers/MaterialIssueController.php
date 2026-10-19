@@ -137,8 +137,17 @@ class MaterialIssueController extends Controller
      */
     protected function authorizeIssueRecordView(MaterialIssue $materialIssue): void
     {
+        $companyId = $this->getCompanyId();
+        if ((int) $materialIssue->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to this material issue record.');
+        }
+
         $user = Auth::user();
-        $roleSlug = $user?->currentRole()?->slug;
+        if (! $user) {
+            abort(403, 'Unauthenticated.');
+        }
+
+        $roleSlug = $user->currentRole()?->slug;
 
         if ($user->hasPermission('*') || in_array($roleSlug, ['owner', 'admin', 'storekeeper', 'accountant', 'procurement_officer'], true)) {
             return;
@@ -510,15 +519,55 @@ class MaterialIssueController extends Controller
         $this->authorizeIssueExecution($materialIssue->project, $materialIssue->site);
         $companyId = $this->getCompanyId();
 
+        // In web form submissions, filter out lines where quantity is 0 or empty when positive returns are provided
+        $rawReturns = $request->input('returns');
+        if (is_array($rawReturns)) {
+            $hasPositive = false;
+            foreach ($rawReturns as $r) {
+                if (isset($r['quantity']) && is_numeric($r['quantity']) && (float) $r['quantity'] > 0) {
+                    $hasPositive = true;
+                    break;
+                }
+            }
+            if ($hasPositive) {
+                $filtered = array_values(array_filter($rawReturns, function ($r) {
+                    return isset($r['quantity']) && is_numeric($r['quantity']) && (float) $r['quantity'] > 0;
+                }));
+                $request->merge(['returns' => $filtered]);
+            }
+        }
+
         $validated = $request->validate([
             'return_date' => 'required|date',
             'returns' => 'required|array|min:1',
             'returns.*.item_id' => 'required|integer',
             'returns.*.quantity' => 'required|numeric|min:0.001',
-            'returns.*.reason' => 'nullable|string',
+            'returns.*.reason' => 'nullable|string|max:255',
         ]);
 
         DB::transaction(function () use ($materialIssue, $validated, $companyId) {
+            // Lock the material issue record deterministically
+            $issue = MaterialIssue::where('id', $materialIssue->id)
+                ->where('company_id', $companyId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $issue) {
+                abort(404, 'Material issue not found in the active company.');
+            }
+
+            // Lock the warehouse record deterministically
+            $warehouse = Warehouse::where('id', $issue->warehouse_id)
+                ->where('company_id', $companyId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $warehouse) {
+                throw ValidationException::withMessages([
+                    'returns' => 'The warehouse associated with this issue does not belong to the active company.',
+                ]);
+            }
+
             // Aggregate returns by item_id to handle duplicate return lines in a single request
             $groupedReturns = [];
             foreach ($validated['returns'] as $returnData) {
@@ -530,87 +579,130 @@ class MaterialIssueController extends Controller
             $itemIds = array_keys($groupedReturns);
             sort($itemIds);
 
-            // Lock items in deterministic sorted order
-            $items = MaterialIssueItem::whereIn('id', $itemIds)->lockForUpdate()->get()->keyBy('id');
+            // Lock issue items in deterministic sorted order strictly scoped to this material issue
+            $items = $issue->items()
+                ->whereIn('id', $itemIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
             // 1. Cross-issue check: every item must belong to THIS material issue
             foreach ($itemIds as $itemId) {
                 $item = $items->get($itemId);
-                if (! $item || (int) $item->material_issue_id !== (int) $materialIssue->id) {
+                if (! $item || (int) $item->material_issue_id !== (int) $issue->id) {
                     throw ValidationException::withMessages([
-                        'returns' => "Item #{$itemId} does not belong to Material Issue {$materialIssue->issue_number}.",
+                        'returns' => "Item #{$itemId} does not belong to Material Issue {$issue->issue_number}.",
                     ]);
                 }
 
-                // 2. Remaining returnable calculation: issued_quantity - previously returned
-                $alreadyReturned = (float) ($item->returned_quantity ?? 0.0);
-                $remainingReturnable = round((float) $item->issued_quantity - $alreadyReturned, 3);
+                // 2. Remaining returnable calculation: issued_quantity - previously accepted returns
+                // Calculate previously accepted returns from the item record and cross-verify with authoritative stock ledger
+                $itemReturned = (float) ($item->returned_quantity ?? 0.0);
+
+                $ledgerReturned = (float) StockLedgerEntry::where('company_id', $companyId)
+                    ->where('reference_type', 'material_issues')
+                    ->where('reference_id', $issue->id)
+                    ->where('transaction_type', 'site_return')
+                    ->where('material_id', $item->material_id)
+                    ->lockForUpdate()
+                    ->sum('quantity');
+
+                $itemsWithSameMaterialCount = $issue->items()->where('material_id', $item->material_id)->count();
+                $previouslyReturned = ($itemsWithSameMaterialCount === 1)
+                    ? max($itemReturned, $ledgerReturned)
+                    : $itemReturned;
+
+                $remainingReturnable = max(0.0, round((float) $item->issued_quantity - $previouslyReturned, 3));
                 $requestedToReturn = $groupedReturns[$itemId];
 
                 if ($requestedToReturn > $remainingReturnable) {
                     $matName = $item->material?->name ?? "Item #{$itemId}";
                     throw ValidationException::withMessages([
-                        'returns' => "Returned quantity ({$requestedToReturn}) exceeds remaining returnable quantity ({$remainingReturnable}) for {$matName} on Issue {$materialIssue->issue_number}.",
+                        'returns' => "Returned quantity ({$requestedToReturn}) exceeds remaining returnable quantity ({$remainingReturnable}) for {$matName} on Issue {$issue->issue_number}.",
                     ]);
                 }
             }
 
-            $warehouse = $materialIssue->warehouse;
+            // Lock materials in deterministic order and verify company ownership
+            $materialIds = $items->pluck('material_id')->unique()->sort()->values()->all();
+            $materials = Material::whereIn('id', $materialIds)
+                ->where('company_id', $companyId)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
 
-            foreach ($validated['returns'] as $returnData) {
-                $item = $items->get((int) $returnData['item_id']);
-                $qty = round((float) $returnData['quantity'], 3);
-                $material = $item->material;
+            if ($materials->count() !== count($materialIds)) {
+                throw ValidationException::withMessages([
+                    'returns' => 'One or more materials are invalid or do not belong to the active company.',
+                ]);
+            }
 
-                // Update item's returned_quantity
-                $item->returned_quantity = round((float) ($item->returned_quantity ?? 0.0) + $qty, 3);
-                $item->save();
-
-                // Compute real-time balance under lock
-                $currentIn = StockLedgerEntry::where('material_id', $material->id)
+            // Compute current stock ledger balances for each material in the warehouse under lock
+            $runningBalances = [];
+            foreach ($materialIds as $matId) {
+                $inStock = StockLedgerEntry::where('material_id', $matId)
                     ->where('warehouse_id', $warehouse->id)
                     ->where('company_id', $companyId)
                     ->where('direction', 'in')
                     ->lockForUpdate()
                     ->sum('quantity');
 
-                $currentOut = StockLedgerEntry::where('material_id', $material->id)
+                $outStock = StockLedgerEntry::where('material_id', $matId)
                     ->where('warehouse_id', $warehouse->id)
                     ->where('company_id', $companyId)
                     ->where('direction', 'out')
                     ->lockForUpdate()
                     ->sum('quantity');
 
-                $currentBalance = round($currentIn - $currentOut, 3);
+                $runningBalances[$matId] = round($inStock - $outStock, 3);
+            }
+
+            // Process return lines
+            foreach ($validated['returns'] as $returnData) {
+                $item = $items->get((int) $returnData['item_id']);
+                $qty = round((float) $returnData['quantity'], 3);
+                $matId = $item->material_id;
+
+                // Synchronize and update item's returned_quantity
+                $currentReturned = (float) ($item->returned_quantity ?? 0.0);
+                $item->returned_quantity = round($currentReturned + $qty, 3);
+                $item->save();
+
+                // Increment running stock balance
+                $newBalance = round($runningBalances[$matId] + $qty, 3);
+                $runningBalances[$matId] = $newBalance;
+
                 $unitRate = (float) $item->unit_rate;
                 $amount = round($qty * $unitRate, 2);
 
                 StockLedgerEntry::create([
                     'company_id' => $companyId,
-                    'material_id' => $material->id,
+                    'material_id' => $matId,
                     'warehouse_id' => $warehouse->id,
                     'entry_date' => $validated['return_date'],
                     'transaction_type' => 'site_return',
                     'reference_type' => 'material_issues',
-                    'reference_id' => $materialIssue->id,
+                    'reference_id' => $issue->id,
                     'quantity' => $qty,
                     'direction' => 'in',
                     'unit_rate' => $unitRate,
                     'total_amount' => $amount,
-                    'balance_quantity' => round($currentBalance + $qty, 3),
+                    'balance_quantity' => $newBalance,
                     'created_by' => Auth::id(),
                 ]);
             }
 
             // Check if all items on the issue are fully returned
-            $allItems = MaterialIssueItem::where('material_issue_id', $materialIssue->id)->get();
+            $allItems = $issue->items()->get();
             $allFullyReturned = $allItems->every(fn($i) => (float) $i->returned_quantity >= (float) $i->issued_quantity);
             $hasAnyReturned = $allItems->contains(fn($i) => (float) $i->returned_quantity > 0);
 
             if ($allFullyReturned) {
-                $materialIssue->updateQuietly(['status' => 'returned']);
+                $issue->updateQuietly(['status' => 'returned']);
             } elseif ($hasAnyReturned) {
-                $materialIssue->updateQuietly(['status' => 'partially_returned']);
+                $issue->updateQuietly(['status' => 'partially_returned']);
             }
 
             AuditLog::create([
@@ -618,11 +710,11 @@ class MaterialIssueController extends Controller
                 'company_id' => $companyId,
                 'action' => 'return_material_from_site',
                 'auditable_type' => MaterialIssue::class,
-                'auditable_id' => $materialIssue->id,
+                'auditable_id' => $issue->id,
                 'new_values' => [
-                    'issue_number' => $materialIssue->issue_number,
+                    'issue_number' => $issue->issue_number,
                     'returns' => $validated['returns'],
-                    'status' => $materialIssue->status,
+                    'status' => $issue->status,
                 ],
                 'ip_address' => request()->ip(),
                 'user_agent' => request()->userAgent(),
