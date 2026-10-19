@@ -27,9 +27,12 @@
             <a href="{{ route('dashboard') }}" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition shadow-sm">
                 Return to Dashboard
             </a>
-            <a href="{{ route('workspace.select') }}" class="px-5 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition border border-gray-200">
-                Switch Workspace
-            </a>
+            <form method="POST" action="{{ route('logout') }}" class="inline">
+                @csrf
+                <button type="submit" class="w-full sm:w-auto px-5 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl transition border border-gray-200 cursor-pointer">
+                    Sign Out
+                </button>
+            </form>
         </div>
     </div>
 </body>

@@ -67,6 +67,16 @@ class Project extends Model
         return $this->hasMany(PurchaseOrder::class);
     }
 
+    public function purchaseRequests(): HasMany
+    {
+        return $this->hasMany(PurchaseRequest::class);
+    }
+
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(Expense::class);
+    }
+
     public function subcontractorWorkOrders(): HasMany
     {
         return $this->hasMany(SubcontractorWorkOrder::class);

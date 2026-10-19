@@ -250,8 +250,7 @@ class SmokeTest extends TestCase
             '/accounting/journals/create',
             '/accounting/trial-balance',
             '/search?q=Solar',
-            '/workspace/select',
-            '/workspace/create',
+            '/company/profile',
         ];
 
         foreach ($urls as $url) {

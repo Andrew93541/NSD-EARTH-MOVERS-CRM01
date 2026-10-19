@@ -12,9 +12,19 @@ use Illuminate\View\View;
 
 class WorkspaceController extends Controller
 {
-    public function select(): View
+    public function select(): View|RedirectResponse
     {
         $user = Auth::user();
+
+        // In single-company mode, active employees of NSD bypass the selector directly to dashboard
+        if (config('company.single_company_mode', true)) {
+            $configured = Company::configuredCompany();
+            if ($configured && $user->companies()->where('companies.id', $configured->id)->wherePivot('status', 'active')->exists()) {
+                session(['current_company_id' => $configured->id]);
+                return redirect()->route('dashboard');
+            }
+        }
+
         $companies = $user->companies()->wherePivot('status', 'active')->get();
 
         return view('workspace.select', compact('companies', 'user'));
@@ -34,13 +44,20 @@ class WorkspaceController extends Controller
         return redirect()->route('dashboard')->with('success', "Switched workspace to {$company->name}");
     }
 
-    public function create(): View
+    public function create(): View|RedirectResponse
     {
+        if (config('company.single_company_mode', true)) {
+            abort(403, 'Multi-company onboarding is disabled in single-company deployment.');
+        }
+
         return view('workspace.create');
     }
 
     public function store(Request $request): RedirectResponse
     {
+        if (config('company.single_company_mode', true)) {
+            abort(403, 'Multi-company onboarding is disabled in single-company deployment.');
+        }
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'legal_name' => 'nullable|string|max:255',

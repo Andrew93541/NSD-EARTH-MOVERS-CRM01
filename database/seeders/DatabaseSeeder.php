@@ -1000,8 +1000,7 @@ class DatabaseSeeder extends Seeder
             'tds_section' => '194C_company_2%',
             'bank_name' => 'HDFC Bank Ltd',
             'bank_account_number' => '50200099887766',
-            'bank_ifsc_code' => 'HDFC0001234',
-            'bank_branch' => 'Peenya Industrial Area, Bengaluru',
+            'ifsc_code' => 'HDFC0001234',
             'payment_terms' => '15_days',
         ]);
 
@@ -1011,8 +1010,8 @@ class DatabaseSeeder extends Seeder
             'title' => 'Bulk Earth Excavation, Site Levelling & Embankment Compaction',
             'scope_of_work' => 'Mechanical excavation in all types of soil including rocky strata, loading into tippers, haulage up to 5 km disposal yard, and backfilling.',
             'site_location' => 'Riverside Residency Site Phase 1, Bengaluru',
-            'commencement_date' => Carbon::now()->subDays(30),
-            'completion_due_date' => Carbon::now()->addDays(60),
+            'start_date' => Carbon::now()->subDays(30),
+            'completion_date' => Carbon::now()->addDays(60),
             'retention_percent' => 5.00,
             'retention_dlp_months' => 12,
             'items' => [
@@ -1061,6 +1060,7 @@ class DatabaseSeeder extends Seeder
             'measurement_formula' => 'trips',
             'multiplier_units' => 57.00,
             'manual_quantity_override' => 920.00,
+            'override_reason' => 'Weighbridge volumetric conversion for 57 tipper loads',
             'manual_override_reason' => 'Weighbridge volumetric conversion for 57 tipper loads',
         ], $siteUser);
 
@@ -1089,7 +1089,7 @@ class DatabaseSeeder extends Seeder
             'amount' => 250000.00,
             'payment_mode' => 'bank_transfer',
             'payment_reference' => 'RTGS-HDFC-882910',
-            'bank_account_id' => $cashAcc->id,
+            'bank_account_id' => null,
             'notes' => 'Partial payment released against certified RA Bill 1',
         ], $accountant);
     }

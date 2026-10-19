@@ -39,6 +39,20 @@ class User extends Authenticatable
 
     public function currentCompany(): ?Company
     {
+        if (config('company.single_company_mode', true)) {
+            $configured = Company::configuredCompany();
+            if ($configured) {
+                $userCompany = $this->companies()
+                    ->where('companies.id', $configured->id)
+                    ->wherePivot('status', 'active')
+                    ->first();
+                if ($userCompany) {
+                    session(['current_company_id' => $userCompany->id]);
+                    return $userCompany;
+                }
+            }
+        }
+
         $companyId = session('current_company_id');
         if ($companyId) {
             $company = $this->companies()

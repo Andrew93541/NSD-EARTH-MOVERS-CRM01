@@ -64,8 +64,8 @@ class SubcontractorBillingService
                 'work_category' => $data['work_category'] ?? 'earthwork',
                 'work_package' => $data['work_package'] ?? null,
                 'scope_of_work' => $data['scope_of_work'] ?? null,
-                'start_date' => $data['start_date'],
-                'completion_date' => $data['completion_date'],
+                'start_date' => $data['start_date'] ?? $data['commencement_date'] ?? Carbon::now(),
+                'completion_date' => $data['completion_date'] ?? $data['completion_due_date'] ?? Carbon::now()->addDays(30),
                 'contract_value' => 0.00,
                 'revised_value' => 0.00,
                 'retention_percent' => $data['retention_percent'] ?? 5.00,
@@ -234,6 +234,15 @@ class SubcontractorBillingService
     public static function recordMeasurement(array $data, User $user): MeasurementBookEntry
     {
         return DB::transaction(function () use ($data, $user) {
+            // Resolve Work Order and Project if not explicitly provided
+            if (! isset($data['work_order_id']) && isset($data['work_order_item_id'])) {
+                $item = SubcontractorWorkOrderItem::with('workOrder')->find($data['work_order_item_id']);
+                if ($item && $item->workOrder) {
+                    $data['work_order_id'] = $item->work_order_id;
+                    $data['project_id'] = $data['project_id'] ?? $item->workOrder->project_id;
+                }
+            }
+
             // Lock Work Order and Item
             $workOrder = SubcontractorWorkOrder::where('id', $data['work_order_id'])->firstOrFail();
             $companyId = $workOrder->company_id;
@@ -247,8 +256,9 @@ class SubcontractorBillingService
                 ->firstOrFail();
 
             // Mismatched project/site validation
-            if ((int) $data['project_id'] !== (int) $workOrder->project_id) {
-                throw new \InvalidArgumentException("Measurement project #{$data['project_id']} does not match Work Order project #{$workOrder->project_id}.");
+            $projectId = $data['project_id'] ?? $workOrder->project_id;
+            if ((int) $projectId !== (int) $workOrder->project_id) {
+                throw new \InvalidArgumentException("Measurement project #{$projectId} does not match Work Order project #{$workOrder->project_id}.");
             }
 
             // Calculate measured quantity
@@ -259,7 +269,8 @@ class SubcontractorBillingService
             $multiplier = isset($data['multiplier_units']) ? (float) $data['multiplier_units'] : 1.00;
             $manualOverride = isset($data['manual_quantity_override']) && $data['manual_quantity_override'] !== '' ? (float) $data['manual_quantity_override'] : null;
 
-            if ($manualOverride !== null && empty($data['override_reason'])) {
+            $overrideReason = $data['override_reason'] ?? $data['manual_override_reason'] ?? null;
+            if ($manualOverride !== null && empty($overrideReason)) {
                 throw new \InvalidArgumentException("An authorized override reason is required whenever a manual quantity override is specified.");
             }
 
@@ -308,14 +319,14 @@ class SubcontractorBillingService
                 'period_start_date' => $data['period_start_date'] ?? $data['measurement_date'],
                 'period_end_date' => $data['period_end_date'] ?? $data['measurement_date'],
                 'location_chainage' => $data['location_chainage'] ?? null,
-                'description' => $data['description'],
+                'description' => $data['description'] ?? $data['work_description'] ?? 'Site measurement',
                 'measurement_formula' => $formula,
                 'length' => $length,
                 'breadth' => $breadth,
                 'depth_height' => $depth,
                 'multiplier_units' => $multiplier,
                 'manual_quantity_override' => $manualOverride,
-                'override_reason' => $data['override_reason'] ?? null,
+                'override_reason' => $data['override_reason'] ?? $data['manual_override_reason'] ?? null,
                 'measured_quantity' => $measuredQty,
                 'previously_certified_quantity' => $previouslyCertified,
                 'cumulative_quantity' => $cumulativeQty,
@@ -519,11 +530,20 @@ class SubcontractorBillingService
      * Create a Subcontractor Running Account (RA) Bill from approved Measurement Book entries.
      */
     public static function createBillFromMeasurements(
-        SubcontractorWorkOrder $workOrder,
-        array $mbEntryIds,
-        array $billData,
-        User $user
+        SubcontractorWorkOrder|array $workOrder,
+        array|User $mbEntryIds = [],
+        array $billData = [],
+        ?User $user = null
     ): SubcontractorBill {
+        if (is_array($workOrder)) {
+            $data = $workOrder;
+            $user = $mbEntryIds instanceof User ? $mbEntryIds : ($user ?? auth()->user());
+            $woId = $data['subcontractor_work_order_id'] ?? $data['work_order_id'] ?? null;
+            $workOrder = SubcontractorWorkOrder::findOrFail($woId);
+            $mbEntryIds = $data['measurement_book_entry_ids'] ?? [];
+            $billData = $data;
+        }
+
         return DB::transaction(function () use ($workOrder, $mbEntryIds, $billData, $user) {
             $companyId = $workOrder->company_id;
 
@@ -631,9 +651,9 @@ class SubcontractorBillingService
                 'work_order_id' => $workOrder->id,
                 'bill_number' => $billNumber,
                 'bill_sequence' => $sequence,
-                'bill_date' => $billData['bill_date'] ?? Carbon::today(),
-                'period_start_date' => $billData['period_start_date'] ?? $mbEntries->min('period_start_date'),
-                'period_end_date' => $billData['period_end_date'] ?? $mbEntries->max('period_end_date'),
+                'bill_date' => $billData['bill_date'] ?? $billData['invoice_date'] ?? Carbon::today(),
+                'period_start_date' => $billData['period_start_date'] ?? $billData['bill_period_start'] ?? $mbEntries->min('measurement_date') ?? Carbon::today(),
+                'period_end_date' => $billData['period_end_date'] ?? $billData['bill_period_end'] ?? $mbEntries->max('measurement_date') ?? Carbon::today(),
                 'gross_work_value' => $totalGrossWorkValue,
                 'cumulative_gross_value' => $cumulativeGrossValue,
                 'previously_certified_value' => $prevCertifiedValue,
@@ -1000,6 +1020,14 @@ class SubcontractorBillingService
 
             return $payment;
         });
+    }
+
+    /**
+     * Alias for recordBillPayment.
+     */
+    public static function recordPayment(SubcontractorBill $bill, array $data, User $user): SubcontractorBillPayment
+    {
+        return self::recordBillPayment($bill, $data, $user);
     }
 
     /**

@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountingController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\EmployeeController;
@@ -25,7 +26,9 @@ use App\Http\Controllers\SubcontractorBillController;
 use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\SubcontractorController;
 use App\Http\Controllers\SubcontractorWorkOrderController;
+use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\WorkspaceController;
+use App\Http\Controllers\CompanyProfileController;
 use Illuminate\Support\Facades\Route;
 
 // Production Health Check (Infrastructure & Monitoring)
@@ -57,6 +60,20 @@ Route::middleware(['auth'])->group(function () {
     // Dashboard (Overview)
     Route::get('/', [DashboardController::class, 'index'])->name('home');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Single Company Profile Module (NSD Earth Movers & Construction Ltd)
+    Route::get('/company/profile', [CompanyProfileController::class, 'show'])->name('company.profile');
+    Route::put('/company/profile', [CompanyProfileController::class, 'update'])->name('company.profile.update');
+
+    // Clients Module
+    Route::prefix('clients')->name('clients.')->group(function () {
+        Route::get('/', [ClientController::class, 'index'])->name('index');
+        Route::get('/create', [ClientController::class, 'create'])->name('create');
+        Route::post('/', [ClientController::class, 'store'])->name('store');
+        Route::get('/{client}', [ClientController::class, 'show'])->name('show');
+        Route::get('/{client}/edit', [ClientController::class, 'edit'])->name('edit');
+        Route::put('/{client}', [ClientController::class, 'update'])->name('update');
+    });
 
     // Projects Module
     Route::prefix('projects')->name('projects.')->group(function () {
@@ -126,6 +143,16 @@ Route::middleware(['auth'])->group(function () {
             Route::put('/{policy}', [ProcurementApprovalPolicyController::class, 'update'])->name('update');
             Route::delete('/{policy}', [ProcurementApprovalPolicyController::class, 'destroy'])->name('destroy');
         });
+    });
+
+    // Material Suppliers Module
+    Route::prefix('suppliers')->name('suppliers.')->group(function () {
+        Route::get('/', [SupplierController::class, 'index'])->name('index');
+        Route::get('/create', [SupplierController::class, 'create'])->name('create');
+        Route::post('/', [SupplierController::class, 'store'])->name('store');
+        Route::get('/{supplier}', [SupplierController::class, 'show'])->name('show');
+        Route::get('/{supplier}/edit', [SupplierController::class, 'edit'])->name('edit');
+        Route::put('/{supplier}', [SupplierController::class, 'update'])->name('update');
     });
 
     // Site Purchase Requests (Material Indents) & PO Conversion

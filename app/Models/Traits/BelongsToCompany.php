@@ -11,8 +11,8 @@ trait BelongsToCompany
     protected static function bootBelongsToCompany(): void
     {
         static::creating(function ($model) {
-            if (empty($model->company_id) && session()->has('current_company_id')) {
-                $model->company_id = session()->get('current_company_id');
+            if (empty($model->company_id)) {
+                $model->company_id = session()->get('current_company_id') ?? Company::configuredCompanyId();
             }
         });
 

@@ -18,6 +18,19 @@ class Company extends Model
         'is_active' => 'boolean',
     ];
 
+    public static function configuredCompany(): ?Company
+    {
+        $slug = config('company.default_slug', 'nsd-earth-movers');
+        return static::where('slug', $slug)->first()
+            ?? static::where('name', 'like', '%NSD Earth Movers%')->first()
+            ?? static::orderBy('id')->first();
+    }
+
+    public static function configuredCompanyId(): int
+    {
+        return static::configuredCompany()?->id ?? 1;
+    }
+
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'company_user')

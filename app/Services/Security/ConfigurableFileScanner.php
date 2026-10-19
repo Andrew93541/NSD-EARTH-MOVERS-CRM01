@@ -20,7 +20,7 @@ class ConfigurableFileScanner implements FileScannerInterface
             if ($isProduction || $failClosed || ! $allowUnscannedDev) {
                 return ScanResult::error('Malware scanner is mandatory in production/fail-closed mode but is disabled in configuration.');
             }
-            return ScanResult::unscanned('Malware scanner is currently disabled via configuration.', false);
+            return ScanResult::unscanned('Malware scanner is currently disabled via configuration.', true);
         }
 
         if (! file_exists($absolutePath)) {
