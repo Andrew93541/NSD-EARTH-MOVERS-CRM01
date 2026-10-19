@@ -9,13 +9,13 @@
 
         <div>
             <label for="name" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Company Trading Name *</label>
-            <input type="text" id="name" name="name" value="{{ old('name') }}" placeholder="e.g. Apex Infra Developers Pvt Ltd" required autofocus
+            <input type="text" id="name" name="name" value="{{ old('name') }}" placeholder="e.g. NSD Earth Movers & Construction Ltd" required autofocus
                    class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"/>
         </div>
 
         <div>
             <label for="legal_name" class="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Registered Legal Entity Name</label>
-            <input type="text" id="legal_name" name="legal_name" value="{{ old('legal_name') }}" placeholder="e.g. Apex Infra Developers Private Limited"
+            <input type="text" id="legal_name" name="legal_name" value="{{ old('legal_name') }}" placeholder="e.g. NSD Earth Movers & Construction Private Limited"
                    class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"/>
         </div>
 

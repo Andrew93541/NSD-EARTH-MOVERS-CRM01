@@ -17,7 +17,12 @@ class SendOperationalRemindersCommand extends Command
     /**
      * The name and signature of the console command.
      */
-    protected $signature = 'buildflow:send-reminders';
+    protected $signature = 'nsdcrm:send-reminders';
+
+    /**
+     * Backward-compatible aliases.
+     */
+    protected $aliases = ['buildflow:send-reminders'];
 
     /**
      * The console command description.

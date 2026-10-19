@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>{{ $title ?? 'BuildFlow - Construction CRM' }}</title>
+    <title>{{ $title ?? 'NSDCRM — NSD Earth Movers & Construction Ltd' }}</title>
     <script>
         (function() {
             const theme = localStorage.getItem('theme');
@@ -27,8 +27,8 @@
                     </svg>
                 </div>
                 <div>
-                    <span class="text-xl font-bold tracking-tight text-gray-900 dark:text-white">BuildFlow</span>
-                    <span class="block text-[10px] uppercase font-semibold text-blue-600 dark:text-blue-400 tracking-wider">Construction CRM</span>
+                    <span class="text-xl font-bold tracking-tight text-gray-900 dark:text-white">NSDCRM</span>
+                    <span class="block text-[10px] uppercase font-semibold text-blue-600 dark:text-blue-400 tracking-wider">NSD Earth Movers & Construction Ltd</span>
                 </div>
             </div>
 

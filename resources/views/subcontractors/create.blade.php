@@ -33,7 +33,7 @@
                     <label class="block text-xs font-bold text-gray-700 mb-1">Legal / Trade Name *</label>
                     <input type="text" name="name" value="{{ old('name') }}" required
                         class="w-full text-xs rounded-xl border-gray-200 px-3 py-2.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        placeholder="e.g. Apex Earthmovers & Infrastructure Pvt Ltd"/>
+                        placeholder="e.g. Specialised Earthworks & Civils Pvt Ltd"/>
                 </div>
 
                 <div>

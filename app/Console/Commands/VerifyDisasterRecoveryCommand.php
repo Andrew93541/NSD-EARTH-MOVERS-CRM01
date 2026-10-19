@@ -9,17 +9,19 @@ use PDO;
 
 class VerifyDisasterRecoveryCommand extends Command
 {
-    protected $signature = 'buildflow:verify-recovery 
+    protected $signature = 'nsdcrm:verify-recovery 
                             {--backup= : Specific durable backup ID to restore and verify} 
                             {--target-db=buildflow_restore_test : Isolated disposable database name}
                             {--keep-disposable : Keep the disposable database for inspection}';
+
+    protected $aliases = ['buildflow:verify-recovery'];
 
     protected $description = 'Perform an isolated, non-destructive disaster recovery restore audit from durable backup';
 
     public function handle(BackupManager $manager): int
     {
         $this->info('===============================================================');
-        $this->info('  BUILDFLOW DISASTER RECOVERY & ISOLATED RESTORE AUDIT');
+        $this->info('  NSDCRM DISASTER RECOVERY & ISOLATED RESTORE AUDIT');
         $this->info('  NSD Earth Movers & Construction Ltd — Production Readiness');
         $this->info('===============================================================');
 

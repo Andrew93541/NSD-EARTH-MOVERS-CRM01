@@ -1,4 +1,4 @@
-@extends('layouts.app', ['title' => 'Notification Centre - BuildFlow'])
+@extends('layouts.app', ['title' => 'Notification Centre - NSDCRM'])
 
 @section('content')
 <div class="space-y-6" id="notification-centre-container">
@@ -9,7 +9,7 @@
                 <span class="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-orange-100 text-orange-800 rounded-md border border-orange-200">
                     REAL-TIME COMMUNICATIONS
                 </span>
-                <span class="text-xs text-gray-500 font-medium">BuildFlow Precision Ops</span>
+                <span class="text-xs text-gray-500 font-medium">NSD Precision Ops</span>
             </div>
             <h1 class="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
                 <span>Notification Centre</span>

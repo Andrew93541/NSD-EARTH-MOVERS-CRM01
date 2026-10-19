@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>503 Maintenance — BuildFlow Construction CRM</title>
+    <title>503 Maintenance — NSDCRM</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -20,7 +20,7 @@
             <span class="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 text-amber-800">503 Maintenance Window</span>
             <h1 class="text-2xl font-extrabold text-gray-900 tracking-tight">System Under Maintenance</h1>
             <p class="text-sm text-gray-500 leading-relaxed">
-                BuildFlow CRM/ERP is currently undergoing scheduled maintenance or database integrity verification. Service will resume shortly.
+                NSD Earth Movers CRM/ERP is currently undergoing scheduled maintenance or database integrity verification. Service will resume shortly.
             </p>
         </div>
     </div>

@@ -20,7 +20,7 @@
                 <span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
                     DIGITAL REPOSITORY
                 </span>
-                <span class="text-xs text-slate-500 font-medium">BuildFlow Precision Archive</span>
+                <span class="text-xs text-slate-500 font-medium">NSD Precision Archive</span>
             </div>
             <h1 class="text-2xl font-bold text-slate-900 tracking-tight mt-1">Central Document Centre</h1>
             <p class="text-xs text-slate-500 mt-1">

@@ -231,7 +231,7 @@ class GoLiveGateClosureTest extends TestCase
     }
 
     /**
-     * 6. Login page suppresses demo credentials pre-fill and banner when in production.
+     * 6. Login page suppresses demo credentials pre-fill and banner in all environments.
      */
     public function test_login_page_masks_demo_credentials_in_production(): void
     {
@@ -249,8 +249,8 @@ class GoLiveGateClosureTest extends TestCase
 
         $localResponse = $this->get('/login');
         $localResponse->assertStatus(200);
-        $localResponse->assertSee('Demo Credentials Pre-filled');
-        $localResponse->assertSee('admin@buildflow.local');
-        $localResponse->assertSee('Password123!');
+        $localResponse->assertDontSee('Demo Credentials Pre-filled');
+        $localResponse->assertDontSee('admin@buildflow.local');
+        $localResponse->assertDontSee('Password123!');
     }
 }

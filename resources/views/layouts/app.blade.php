@@ -4,7 +4,7 @@
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title ?? 'BuildFlow - Construction CRM' }}</title>
+    <title>{{ $title ?? 'NSDCRM — NSD Earth Movers & Construction Ltd' }}</title>
     <script>
         (function() {
             const theme = localStorage.getItem('theme');
@@ -14,11 +14,12 @@
                 document.documentElement.classList.remove('dark');
             }
         })();
-        window.buildFlowConfig = {
+        window.nsdCrmConfig = {
             userId: {{ Auth::id() ?? 'null' }},
             companyId: {{ Auth::user()?->company_id ?? session('current_company_id') ?? Auth::user()?->currentCompany()?->id ?? 'null' }},
             reverbKey: '{{ config('reverb.apps.apps.0.key', env('REVERB_APP_KEY')) }}'
         };
+        window.buildFlowConfig = window.nsdCrmConfig;
     </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -66,7 +67,7 @@
                     </svg>
                 </div>
                 <div>
-                    <span class="text-base font-bold tracking-tight text-slate-900 dark:text-white">BuildFlow</span>
+                    <span class="text-base font-bold tracking-tight text-slate-900 dark:text-white">NSDCRM</span>
                     <span class="block text-[9px] uppercase font-bold text-blue-600 dark:text-blue-400 tracking-wider">CONSTRUCTION CRM</span>
                 </div>
             </div>
@@ -138,7 +139,7 @@
                 </svg>
             </div>
             <div>
-                <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white">BuildFlow</span>
+                <span class="text-lg font-bold tracking-tight text-slate-900 dark:text-white">NSDCRM</span>
                 <span class="block text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 tracking-wider">CONSTRUCTION CRM</span>
             </div>
         </div>
@@ -457,7 +458,7 @@
 
         <!-- Footer -->
         <footer class="py-3 px-6 border-t border-slate-200/60 dark:border-slate-800 text-center text-[11px] text-slate-400 dark:text-slate-500">
-            <span>BuildFlow Construction CRM & ERP • NSD Earth Movers & Construction Ltd</span>
+            <span>NSDCRM • NSD Earth Movers & Construction Ltd</span>
         </footer>
 
     </div>

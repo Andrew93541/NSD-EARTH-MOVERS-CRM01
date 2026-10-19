@@ -7,14 +7,16 @@ use Illuminate\Console\Command;
 
 class ValidateBackupCommand extends Command
 {
-    protected $signature = 'buildflow:backup:validate 
+    protected $signature = 'nsdcrm:backup:validate 
                             {backup_id? : Backup ID to validate (defaults to latest backup)}';
+
+    protected $aliases = ['buildflow:backup:validate'];
 
     protected $description = 'Validate SHA-256 checksums, AEAD authentication, and archive integrity of a durable backup';
 
     public function handle(BackupManager $manager): int
     {
-        $this->info("=== BuildFlow Backup Validation Engine ===");
+        $this->info("=== NSDCRM Backup Validation Engine ===");
 
         $backupId = $this->argument('backup_id');
         if (! $backupId) {

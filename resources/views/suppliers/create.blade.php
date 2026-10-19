@@ -25,7 +25,7 @@
                         <input type="text"
                                name="name"
                                value="{{ old('name') }}"
-                               placeholder="e.g. UltraTech Cement Supplies Ltd"
+                               placeholder="e.g. Registered Vendor / Material Supplier Name"
                                required
                                class="w-full py-2 px-3 text-xs border @error('name') border-rose-300 bg-rose-50/50 @else border-slate-200 @enderror rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                         @error('name')

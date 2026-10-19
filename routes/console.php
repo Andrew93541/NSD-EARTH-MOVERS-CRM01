@@ -19,24 +19,24 @@ Artisan::command('inspire', function () {
 | 4. Weekly (Sun 03:00): Isolated non-destructive disaster recovery restore
 |
 */
-Schedule::command('buildflow:backup:create --frequency=hourly')
+Schedule::command('nsdcrm:backup:create --frequency=hourly')
     ->hourly()
     ->withoutOverlapping(30)
     ->onOneServer()
     ->runInBackground();
 
-Schedule::command('buildflow:backup:replicate')
+Schedule::command('nsdcrm:backup:replicate')
     ->hourlyAt(15)
     ->withoutOverlapping(30)
     ->onOneServer()
     ->runInBackground();
 
-Schedule::command('buildflow:backup:validate')
+Schedule::command('nsdcrm:backup:validate')
     ->dailyAt('02:00')
     ->withoutOverlapping(30)
     ->onOneServer();
 
-Schedule::command('buildflow:verify-recovery')
+Schedule::command('nsdcrm:verify-recovery')
     ->weeklyOn(0, '03:00')
     ->withoutOverlapping(60)
     ->onOneServer();
@@ -50,7 +50,7 @@ Schedule::command('buildflow:verify-recovery')
 | every 4 hours during operational site working hours.
 |
 */
-Schedule::command('buildflow:send-reminders')
+Schedule::command('nsdcrm:send-reminders')
     ->everyFourHours()
     ->withoutOverlapping(15)
     ->onOneServer()

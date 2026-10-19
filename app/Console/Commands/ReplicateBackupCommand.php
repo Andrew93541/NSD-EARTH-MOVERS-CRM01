@@ -8,15 +8,17 @@ use Illuminate\Console\Command;
 
 class ReplicateBackupCommand extends Command
 {
-    protected $signature = 'buildflow:backup:replicate 
+    protected $signature = 'nsdcrm:backup:replicate 
                             {backup_id? : ID of durable backup to replicate (defaults to latest validated backup)}
                             {--prune-only : Only prune expired secondary replicas}';
+
+    protected $aliases = ['buildflow:backup:replicate'];
 
     protected $description = 'Replicate verified durable backups to secondary/off-host destination';
 
     public function handle(BackupManager $backupManager, BackupReplicationInterface $replicator): int
     {
-        $this->info("=== BuildFlow Backup Replication Engine ===");
+        $this->info("=== NSDCRM Backup Replication Engine ===");
 
         if ($this->option('prune-only')) {
             $retention = (int) config('backup.replication.retention_count', 7);

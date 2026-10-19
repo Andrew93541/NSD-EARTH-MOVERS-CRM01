@@ -11,8 +11,10 @@ use Illuminate\Support\Facades\File;
 
 class ReleasePreflightCommand extends Command
 {
-    protected $signature = 'buildflow:preflight 
+    protected $signature = 'nsdcrm:preflight 
                             {--strict : Enforce strict production rules even in non-production environments}';
+
+    protected $aliases = ['buildflow:preflight'];
 
     protected $description = 'Perform a comprehensive production release preflight and go-live gate audit';
 
@@ -21,7 +23,7 @@ class ReleasePreflightCommand extends Command
         $strict = (bool) $this->option('strict') || app()->environment('production');
 
         $this->info("==========================================================================================");
-        $this->info("  BUILDFLOW CRM/ERP — PRODUCTION RELEASE PREFLIGHT & GO-LIVE AUDIT GATE");
+        $this->info("  NSDCRM — PRODUCTION RELEASE PREFLIGHT & GO-LIVE AUDIT GATE");
         $this->info("  NSD Earth Movers & Construction Ltd | Runtime: PHP " . PHP_VERSION . " | Laravel " . app()->version());
         $this->info("  Mode: " . ($strict ? "<fg=red;options=bold>STRICT PRODUCTION</>" : "<fg=yellow>DEVELOPMENT / ADVISORY</>"));
         $this->info("==========================================================================================\n");

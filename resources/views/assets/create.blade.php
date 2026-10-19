@@ -191,7 +191,7 @@
 
                 <div>
                     <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Site / Physical Yard Location</label>
-                    <input type="text" name="location" value="{{ old('location') }}" placeholder="e.g. Riverside Residency Site Yard, Nagpur" class="w-full text-xs border border-gray-200 rounded-xl p-2.5">
+                    <input type="text" name="location" value="{{ old('location') }}" placeholder="e.g. Central Workshop, Bengaluru Yard" class="w-full text-xs border border-gray-200 rounded-xl p-2.5">
                 </div>
             </div>
 

@@ -8,15 +8,17 @@ use Illuminate\Support\Facades\Cache;
 
 class CreateBackupCommand extends Command
 {
-    protected $signature = 'buildflow:backup:create 
+    protected $signature = 'nsdcrm:backup:create 
                             {--frequency=hourly : Frequency tier (hourly, daily, monthly)} 
                             {--encrypt : Encrypt snapshot with AEAD AES-256-GCM}';
+
+    protected $aliases = ['buildflow:backup:create'];
 
     protected $description = 'Create a durable, persistent backup of the MySQL database and private document storage';
 
     public function handle(BackupManager $manager): int
     {
-        $this->info("=== BuildFlow Durable Backup Engine ===");
+        $this->info("=== NSDCRM Durable Backup Engine ===");
 
         // Prevent overlapping backup jobs with atomic cache lock
         $lock = Cache::lock('buildflow_backup_running_lock', 600);

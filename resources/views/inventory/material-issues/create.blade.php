@@ -109,7 +109,7 @@
 
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 mb-1">Received By (Name / Operator)</label>
-                    <input type="text" name="received_by_name" value="{{ old('received_by_name') }}" placeholder="e.g. Ramesh Site Foreman"
+                    <input type="text" name="received_by_name" value="{{ old('received_by_name') }}" placeholder="e.g. Authorized Site Receiver / Foreman"
                            class="w-full text-xs rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500">
                 </div>
 
