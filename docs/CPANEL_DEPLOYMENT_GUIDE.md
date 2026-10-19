@@ -162,6 +162,7 @@ APP_NAME="NSD Earth Movers & Construction Ltd"
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://crm.nsdearthmovers.com
+APP_TIMEZONE=Asia/Kolkata
 
 # -------------------------------------------------------------
 # SECURITY & SESSIONS
@@ -209,19 +210,36 @@ SCANNER_ENABLED=false
 SCANNER_FAIL_CLOSED=false
 
 # -------------------------------------------------------------
-# BACKUP & ENCRYPTION KEY
+# BACKUP & ENCRYPTION KEY (AES-256-GCM)
 # -------------------------------------------------------------
 BACKUP_ENCRYPT=true
 BACKUP_ENCRYPTION_CIPHER=AES-256-GCM
+BACKUP_ENCRYPTION_KEY=your_64_character_hex_key_here
 ```
 
-4. **Generate Application Key:**  
+4. **Generate Application Key & Backup Key:**  
    In cPanel Terminal (or via SSH):
    ```bash
    cd /home/YOUR_CPANEL_USER/crm_app
    php artisan key:generate --force
    ```
    *(If Terminal is unavailable, run `php artisan key:generate --show` locally and paste the key into your production `.env`).*
+
+   For `BACKUP_ENCRYPTION_KEY`, generate a dedicated 64-character hexadecimal key (256-bit):
+   ```bash
+   php -r 'echo bin2hex(random_bytes(32)) . PHP_EOL;'
+   ```
+
+### 6.1 Critical Security: Git History & Secret Rotation Checklist
+> **IMPORTANT SECURITY NOTICE:**  
+> A tracked `.env.bak` file was removed from the repository HEAD. However, **deleting a file from the latest commit does NOT erase it from older Git history**. Anyone with clone access to the repository could potentially inspect past commits.
+>
+> **Mandatory Production Rotation Checklist:**
+> 1. **Application Key (`APP_KEY`):** Must be newly generated for production via `php artisan key:generate`. Never reuse the local development `APP_KEY`.
+> 2. **Database Credentials:** Use a brand new, random password for `YOUR_CPANEL_USER_crmusr`. Never reuse passwords from local or staging environments.
+> 3. **Backup Encryption Key (`BACKUP_ENCRYPTION_KEY`):** Generate a unique 256-bit key strictly for production.
+> 4. **Mail / SMTP Credentials:** Use unique production credentials for your SMTP mailbox.
+> 5. **Git History Scrubbing:** If the repository is ever made public or shared with untrusted parties, request an explicit history rewrite using `git-filter-repo` or BFG Repo-Cleaner to purge `.env.bak` across all commits. (Never perform history rewriting or force-push without team approval).
 
 ---
 

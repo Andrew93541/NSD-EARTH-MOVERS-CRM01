@@ -48,9 +48,10 @@ Each system component is categorized into one of three support tiers:
 
 ## 3. Deep Dive: Hosting Subsystems
 
-### 3.1 PHP Runtime and Memory Limits
+### 3.1 PHP Runtime, Memory Limits & Timezone
 - **Minimum PHP Version:** 8.3.0 (`composer.json` specifies `"php": "^8.3"`).
 - **Tested Versions:** PHP 8.3, 8.4, 8.5.
+- **Timezone & Locale:** Configured for Indian Standard Time (`APP_TIMEZONE=Asia/Kolkata`, UTC+5:30). Fully validated against all daily attendance muster rolls, overtime logging, payroll periods, and deadline reminders with 339 tests passing.
 - **cPanel Configuration:** In **MultiPHP Manager** or **Select PHP Version**:
   - Set PHP version to **8.3** (or highest available 8.x).
   - Configure `memory_limit` to at least `256M` (recommended: `512M` for heavy PDF generation and Excel export reports).
