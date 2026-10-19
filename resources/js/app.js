@@ -156,6 +156,37 @@ window.notificationCenter = function () {
     };
 };
 
+// Global Dark Mode Controller Component
+window.darkModeManager = function () {
+    return {
+        isDark: false,
+        init() {
+            this.isDark = document.documentElement.classList.contains('dark');
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            mediaQuery.addEventListener('change', (e) => {
+                if (!localStorage.getItem('theme')) {
+                    this.applyTheme(e.matches ? 'dark' : 'light', false);
+                }
+            });
+        },
+        toggle() {
+            this.applyTheme(this.isDark ? 'light' : 'dark', true);
+        },
+        applyTheme(mode, persist = true) {
+            if (mode === 'dark') {
+                document.documentElement.classList.add('dark');
+                if (persist) localStorage.setItem('theme', 'dark');
+                this.isDark = true;
+            } else {
+                document.documentElement.classList.remove('dark');
+                if (persist) localStorage.setItem('theme', 'light');
+                this.isDark = false;
+            }
+            window.dispatchEvent(new CustomEvent('theme-changed', { detail: { isDark: this.isDark } }));
+        }
+    };
+};
+
 // Start Alpine
 Alpine.start();
 

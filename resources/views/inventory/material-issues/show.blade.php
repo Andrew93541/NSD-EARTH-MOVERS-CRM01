@@ -162,52 +162,59 @@
     @endif
 
     <!-- Return Materials Modal -->
-    <div x-show="returnModalOpen" class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
-        <div class="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-xl border border-slate-200" @click.away="returnModalOpen = false">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+    <div x-show="returnModalOpen" class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
+        <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100" @click.away="returnModalOpen = false">
+            <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div class="flex items-center gap-2">
-                    <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
                     </div>
-                    <h3 class="text-sm font-bold text-slate-900">Return Unused Materials to Warehouse</h3>
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">Return Unused Materials to Warehouse</h3>
                 </div>
-                <button @click="returnModalOpen = false" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
+                <button @click="returnModalOpen = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">&times;</button>
             </div>
 
-            <p class="text-xs text-slate-600">
-                Record surplus materials returned from <span class="font-bold text-slate-900">{{ $materialIssue->site->name }}</span> back into <span class="font-bold text-slate-900">{{ $materialIssue->warehouse->name }}</span>.
+            <p class="text-xs text-slate-600 dark:text-slate-400">
+                Record surplus materials returned from <span class="font-bold text-slate-900 dark:text-white">{{ $materialIssue->site->name }}</span> back into <span class="font-bold text-slate-900 dark:text-white">{{ $materialIssue->warehouse->name }}</span>.
             </p>
 
             <form method="POST" action="{{ route('material-issues.return', $materialIssue) }}" class="space-y-4">
                 @csrf
 
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">Return Date *</label>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Return Date *</label>
                     <input type="date" name="return_date" value="{{ date('Y-m-d') }}" required
-                           class="w-full text-xs rounded-xl border-slate-200 focus:border-blue-500 focus:ring-blue-500">
+                           class="w-full text-xs rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:border-blue-500 focus:ring-blue-500">
                 </div>
 
                 <div class="space-y-3">
-                    <label class="block text-xs font-semibold text-slate-700">Materials to Return:</label>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Materials to Return:</label>
                     @foreach($materialIssue->items as $index => $item)
-                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-4 text-xs">
+                    @php $remaining = $item->remainingReturnableQuantity(); @endphp
+                    <div class="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4 text-xs">
                         <div class="min-w-0 flex-1">
-                            <span class="font-bold text-slate-900 block">{{ $item->material->name }}</span>
-                            <span class="text-[11px] text-slate-500">Originally Issued: {{ number_format($item->issued_quantity, 2) }} {{ $item->unit_of_measure }}</span>
+                            <span class="font-bold text-slate-900 dark:text-white block">{{ $item->material->name }}</span>
+                            <span class="text-[11px] text-slate-500 dark:text-slate-400">
+                                Issued: {{ number_format($item->issued_quantity, 2) }} | Returned: {{ number_format($item->returned_quantity, 2) }} | Remaining: <strong class="text-indigo-600 dark:text-indigo-400">{{ number_format($remaining, 2) }}</strong> {{ $item->unit_of_measure }}
+                            </span>
                             <input type="hidden" name="returns[{{ $index }}][item_id]" value="{{ $item->id }}">
                         </div>
                         <div class="w-36">
-                            <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Return Qty ({{ $item->unit_of_measure }})</label>
-                            <input type="number" step="0.001" min="0" max="{{ $item->issued_quantity }}"
-                                   name="returns[{{ $index }}][quantity]" value="0"
-                                   class="w-full text-xs font-mono rounded-lg border-slate-200 focus:border-blue-500 focus:ring-blue-500 text-right">
+                            @if($remaining > 0)
+                                <label class="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Return Qty ({{ $item->unit_of_measure }})</label>
+                                <input type="number" step="0.001" min="0" max="{{ $remaining }}"
+                                       name="returns[{{ $index }}][quantity]" value="0"
+                                       class="w-full text-xs font-mono rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:border-blue-500 focus:ring-blue-500 text-right">
+                            @else
+                                <span class="px-2 py-1 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 block text-center">Fully Returned</span>
+                            @endif
                         </div>
                     </div>
                     @endforeach
                 </div>
 
-                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                    <button type="button" @click="returnModalOpen = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition">
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <button type="button" @click="returnModalOpen = false" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium transition">
                         Cancel
                     </button>
                     <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs transition">
