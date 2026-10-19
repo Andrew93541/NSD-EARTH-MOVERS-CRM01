@@ -221,6 +221,12 @@ class ProjectController extends Controller
             'pending_expenses' => $expenses->where('status', 'pending'),
         ];
 
+        $materialIssues = $project->materialIssues()
+            ->where('company_id', $companyId)
+            ->with(['warehouse', 'site', 'items.material', 'issuer'])
+            ->latest('issue_date')
+            ->get();
+
         return view('projects.show', compact(
             'project',
             'financials',
@@ -230,7 +236,8 @@ class ProjectController extends Controller
             'subWorkOrders',
             'subBills',
             'expenses',
-            'supplierInvoices'
+            'supplierInvoices',
+            'materialIssues'
         ));
     }
 

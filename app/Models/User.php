@@ -51,6 +51,9 @@ class User extends Authenticatable
                     return $userCompany;
                 }
             }
+
+            session()->forget('current_company_id');
+            return null;
         }
 
         $companyId = session('current_company_id');

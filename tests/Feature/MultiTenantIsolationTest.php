@@ -122,8 +122,11 @@ class MultiTenantIsolationTest extends TestCase
         $response->assertStatus(403);
     }
 
-    public function test_user_with_multi_company_membership_can_switch_workspaces(): void
+    public function test_user_with_multi_company_membership_can_switch_workspaces_when_mode_disabled(): void
     {
+        // Explicitly enable multi-company switching for this regression test
+        config(['company.single_company_mode' => false]);
+
         // Add User A to Company B as well
         $this->companyB->users()->attach($this->userA->id, [
             'status' => 'active',
@@ -135,5 +138,20 @@ class MultiTenantIsolationTest extends TestCase
 
         $response->assertRedirect('/dashboard');
         $this->assertEquals($this->companyB->id, session('current_company_id'));
+    }
+
+    public function test_user_cannot_switch_workspaces_when_single_company_mode_is_active(): void
+    {
+        config(['company.single_company_mode' => true]);
+
+        $this->companyB->users()->attach($this->userA->id, [
+            'status' => 'active',
+            'is_primary' => false,
+        ]);
+
+        $response = $this->actingAs($this->userA)
+            ->post('/workspace/switch/' . $this->companyB->id);
+
+        $response->assertStatus(403);
     }
 }

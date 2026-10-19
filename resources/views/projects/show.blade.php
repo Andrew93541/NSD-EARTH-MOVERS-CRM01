@@ -491,6 +491,81 @@
         </div>
     </div>
 
+    <!-- Site Material Issues & Inventory Consumption -->
+    <div class="soft-card p-6 space-y-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Site Material Issues &amp; Inventory Consumption</h3>
+                <p class="text-xs text-slate-500">Materials issued from company warehouses and yards directly consumed on this project.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-slate-500">{{ $materialIssues->count() }} issue note(s)</span>
+                <a href="{{ route('material-issues.create', ['project_id' => $project->id]) }}" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    <span>Issue Stock to Project</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-100 rounded-xl">
+            <table class="w-full text-left text-xs border-collapse">
+                <thead>
+                    <tr class="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                        <th class="py-2.5 px-3">Slip #</th>
+                        <th class="py-2.5 px-3">Date</th>
+                        <th class="py-2.5 px-3">Source Warehouse</th>
+                        <th class="py-2.5 px-3">Destination Site</th>
+                        <th class="py-2.5 px-3">Materials</th>
+                        <th class="py-2.5 px-3 text-right">Valuation (₹)</th>
+                        <th class="py-2.5 px-3 text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-slate-600 font-medium">
+                    @forelse($materialIssues as $issue)
+                    <tr class="hover:bg-slate-50/50 transition">
+                        <td class="py-2.5 px-3 font-mono font-bold text-blue-600">
+                            <a href="{{ route('material-issues.show', $issue) }}" class="hover:underline">
+                                {{ $issue->issue_number }}
+                            </a>
+                        </td>
+                        <td class="py-2.5 px-3 text-[11px]">{{ $issue->issue_date->format('d M Y') }}</td>
+                        <td class="py-2.5 px-3">{{ $issue->warehouse->name }}</td>
+                        <td class="py-2.5 px-3 font-semibold text-slate-800">📍 {{ $issue->site->name }}</td>
+                        <td class="py-2.5 px-3">
+                            @foreach($issue->items as $it)
+                                <span class="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] mr-1 mb-0.5">
+                                    {{ $it->material->name }}: {{ number_format($it->issued_quantity, 1) }} {{ $it->unit_of_measure }}
+                                </span>
+                            @endforeach
+                        </td>
+                        <td class="py-2.5 px-3 text-right font-mono font-bold text-slate-900">₹{{ number_format($issue->total_cost, 2) }}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                {{ $issue->status }}
+                            </span>
+                        </td>
+                    </tr>
+                    @empty
+                    <tr>
+                        <td colspan="7" class="py-6 text-center text-slate-400">
+                            No warehouse inventory dispatches logged for this project yet.
+                        </td>
+                    </tr>
+                    @endforelse
+                </tbody>
+                @if($materialIssues->count() > 0)
+                <tfoot>
+                    <tr class="bg-slate-50/75 border-t border-slate-200 font-bold text-slate-900">
+                        <td colspan="5" class="py-2.5 px-3 text-right">Total Material Consumption Cost:</td>
+                        <td class="py-2.5 px-3 text-right font-mono text-blue-700">₹{{ number_format($materialIssues->sum('total_cost'), 2) }}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+                @endif
+            </table>
+        </div>
+    </div>
+
     <!-- Project Documents Vault -->
     <x-document-manager 
         :record="$project" 

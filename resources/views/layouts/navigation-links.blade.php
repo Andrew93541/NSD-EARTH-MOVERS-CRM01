@@ -1,10 +1,12 @@
 @php
     $u = auth()->user();
     $canClients = $u && ($u->hasPermission('*') || $u->hasPermission('clients.*') || $u->hasPermission('clients.view') || $u->hasPermission('projects.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'accountant']));
+    $canQuotations = $u && ($u->hasPermission('*') || $u->hasPermission('quotations.*') || $u->hasPermission('quotations.view') || $u->hasPermission('projects.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'accountant']));
     $canProjects = $u && ($u->hasPermission('*') || $u->hasPermission('projects.*') || $u->hasPermission('projects.view'));
     $canSites = $u && ($u->hasPermission('*') || $u->hasPermission('sites.*') || $u->hasPermission('sites.view'));
     $canSuppliers = $u && ($u->hasPermission('*') || $u->hasPermission('suppliers.*') || $u->hasPermission('suppliers.view') || $u->hasPermission('procurement.*') || $u->hasPermission('materials.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'project_manager', 'procurement_officer', 'storekeeper', 'accountant']));
     $canInventory = $u && ($u->hasPermission('*') || $u->hasPermission('inventory.*') || $u->hasPermission('materials.*') || $u->hasPermission('materials.request'));
+    $canMaterialIssues = $u && ($u->hasPermission('*') || $u->hasPermission('inventory.*') || $u->hasPermission('materials.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'storekeeper', 'project_manager', 'procurement_officer']));
     $canMuster = $u && ($u->hasPermission('*') || $u->hasPermission('attendance.*') || $u->hasPermission('attendance.record') || $u->hasPermission('attendance.muster'));
     $canEmployees = $u && ($u->hasPermission('*') || $u->hasPermission('employees.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'hr_officer']));
     $canPayroll = $u && ($u->hasPermission('*') || $u->hasPermission('payroll.*') || in_array($u->currentRole()?->slug, ['owner', 'admin', 'hr_officer', 'accountant']));
@@ -43,6 +45,14 @@
                class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('clients.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
                 <span>Client Directory</span>
+            </a>
+            @endif
+
+            @if($canQuotations)
+            <a href="{{ route('quotations.index') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('quotations.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span>Quotations & Estimates</span>
             </a>
             @endif
 
@@ -131,9 +141,17 @@
 
             @if($canInventory)
             <a href="{{ route('inventory.index') }}"
-               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('inventory.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('inventory.*') && ! request()->routeIs('material-issues.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                 <span>Stock & Inventory</span>
+            </a>
+            @endif
+
+            @if($canMaterialIssues)
+            <a href="{{ route('material-issues.index') }}"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl font-medium transition {{ request()->routeIs('material-issues.*') ? 'bg-blue-600 text-white font-semibold shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100' }}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+                <span>Site Material Issues</span>
             </a>
             @endif
 

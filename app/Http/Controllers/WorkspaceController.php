@@ -15,17 +15,19 @@ class WorkspaceController extends Controller
     public function select(): View|RedirectResponse
     {
         $user = Auth::user();
+        $configured = Company::configuredCompany();
 
         // In single-company mode, active employees of NSD bypass the selector directly to dashboard
         if (config('company.single_company_mode', true)) {
-            $configured = Company::configuredCompany();
             if ($configured && $user->companies()->where('companies.id', $configured->id)->wherePivot('status', 'active')->exists()) {
                 session(['current_company_id' => $configured->id]);
                 return redirect()->route('dashboard');
             }
         }
 
-        $companies = $user->companies()->wherePivot('status', 'active')->get();
+        $companies = config('company.single_company_mode', true)
+            ? ($configured ? $user->companies()->where('companies.id', $configured->id)->wherePivot('status', 'active')->get() : collect())
+            : $user->companies()->wherePivot('status', 'active')->get();
 
         return view('workspace.select', compact('companies', 'user'));
     }
@@ -33,6 +35,14 @@ class WorkspaceController extends Controller
     public function switch(Request $request, Company $company): RedirectResponse
     {
         $user = Auth::user();
+
+        // In single-company mode, switching away from the configured company is strictly disabled
+        if (config('company.single_company_mode', true)) {
+            $configured = Company::configuredCompany();
+            if (! $configured || $company->id !== $configured->id) {
+                abort(403, 'Company switching is disabled in single-company deployment.');
+            }
+        }
 
         // Enforce server-side tenant membership verification with active status check
         if (! $user->companies()->where('companies.id', $company->id)->wherePivot('status', 'active')->exists()) {

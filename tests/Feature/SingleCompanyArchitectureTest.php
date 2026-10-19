@@ -305,4 +305,160 @@ class SingleCompanyArchitectureTest extends TestCase
         // Project overview renders cleanly with financial overview
         $this->actingAs($this->projectManager)->get(route('projects.show', $project))->assertStatus(200)->assertSee('Metro Line 3 Civil Works');
     }
+
+    public function test_switching_to_another_company_is_strictly_forbidden_in_single_company_mode(): void
+    {
+        $secondCompany = Company::create([
+            'name' => 'Apex Infra Developers Pvt Ltd',
+            'slug' => 'apex-infra',
+            'currency' => 'INR',
+            'currency_symbol' => '₹',
+            'is_active' => true,
+        ]);
+
+        // Even if user has an active membership in another company record in the DB
+        $secondCompany->users()->attach($this->owner->id, [
+            'role_id' => $this->ownerRole->id,
+            'status' => 'active',
+            'is_primary' => false,
+        ]);
+
+        // Switching away from NSD must be blocked with HTTP 403
+        $response = $this->actingAs($this->owner)->post(route('workspace.switch', $secondCompany));
+        $response->assertStatus(403);
+
+        // Session current_company_id remains NSD company
+        $this->assertEquals($this->nsdCompany->id, session('current_company_id'));
+    }
+
+    public function test_direct_http_requests_to_financial_endpoints_enforce_role_boundaries(): void
+    {
+        // 1. Site Supervisor attempts direct access to Loans & EMI -> 403 Forbidden
+        $this->actingAs($this->siteSupervisor)->get(route('loans.index'))->assertStatus(403);
+
+        // 2. Storekeeper attempts direct access to Client Invoicing & RA Billing -> 403 Forbidden
+        $this->actingAs($this->storekeeper)->get(route('billing.index'))->assertStatus(403);
+
+        // 3. Storekeeper attempts direct access to General Ledger & Accounting -> 403 Forbidden
+        $this->actingAs($this->storekeeper)->get(route('accounting.index'))->assertStatus(403);
+
+        // 4. Site Supervisor attempts direct access to Client Retention & DLP Claims -> 403 Forbidden
+        $this->actingAs($this->siteSupervisor)->get(route('retention.index'))->assertStatus(403);
+
+        // 5. Unauthenticated guest attempts access to Company Profile -> Redirect to login
+        auth()->logout();
+        $this->get(route('company.profile'))->assertRedirect(route('login'));
+    }
+
+    public function test_client_and_supplier_relationships_and_financial_metrics_remain_strictly_linked(): void
+    {
+        $client = Client::create([
+            'company_id' => $this->nsdCompany->id,
+            'name' => 'Bangalore Metro Rail Corporation',
+            'company_name' => 'BMRCL',
+            'contact_person' => 'Chief Engineer',
+            'email' => 'contracts@bmrcl.com',
+            'status' => 'active',
+        ]);
+
+        $project = Project::create([
+            'company_id' => $this->nsdCompany->id,
+            'client_id' => $client->id,
+            'name' => 'Reach 6 Underground Tunnel',
+            'code' => 'BMRCL-UG-06',
+            'contract_amount' => 50000000.00,
+            'approved_budget' => 45000000.00,
+            'status' => 'active',
+        ]);
+
+        $supplier = Supplier::create([
+            'company_id' => $this->nsdCompany->id,
+            'name' => 'Ultratech Ready-Mix Concrete',
+            'vendor_type' => 'supplier',
+            'payment_terms' => 'net_30',
+            'status' => 'active',
+        ]);
+
+        // Relationships are strictly maintained
+        $this->assertTrue($client->projects->contains($project));
+        $this->assertEquals($client->id, $project->client->id);
+        $this->assertEquals($this->nsdCompany->id, $client->company_id);
+        $this->assertEquals($this->nsdCompany->id, $supplier->company_id);
+        $this->assertEquals($this->nsdCompany->id, $project->company_id);
+
+        // Project show endpoint loads financial overview without errors
+        $response = $this->actingAs($this->projectManager)->get(route('projects.show', $project));
+        $response->assertStatus(200);
+        $response->assertSee('Reach 6 Underground Tunnel');
+        $response->assertSee('BMRCL');
+    }
+
+    public function test_user_without_nsd_membership_cannot_resolve_workspace_or_access_application(): void
+    {
+        $otherCompany = Company::create([
+            'name' => 'Third Party Builders Ltd',
+            'slug' => 'third-party-builders',
+            'currency' => 'INR',
+            'currency_symbol' => '₹',
+            'is_active' => true,
+        ]);
+
+        $externalUser = User::create([
+            'name' => 'External Contractor',
+            'email' => 'contractor@external.com',
+            'password' => Hash::make('Password123!'),
+        ]);
+
+        // Attach user only to third-party company
+        $otherCompany->users()->attach($externalUser->id, [
+            'status' => 'active',
+            'is_primary' => true,
+        ]);
+
+        // In single-company mode, externalUser must resolve null company
+        $this->assertNull($externalUser->currentCompany());
+        $this->assertFalse(session()->has('current_company_id'));
+
+        // Direct web request to /dashboard must be redirected to workspace.select
+        $response = $this->actingAs($externalUser)->get(route('dashboard'));
+        $response->assertRedirect(route('workspace.select'));
+
+        // Visiting workspace.select renders no options and explicit warning
+        $selectResponse = $this->actingAs($externalUser)->get(route('workspace.select'));
+        $selectResponse->assertStatus(200);
+        $selectResponse->assertSee('No active company workspace assigned or membership revoked');
+        $selectResponse->assertDontSee(route('workspace.switch', $otherCompany));
+
+        // API / JSON request to authenticated route is aborted with 403 Forbidden
+        $jsonResponse = $this->actingAs($externalUser)->getJson(route('dashboard'));
+        $jsonResponse->assertStatus(403);
+    }
+
+    public function test_suspended_nsd_employee_cannot_resolve_workspace_or_access_application(): void
+    {
+        // Suspend the site supervisor's membership in NSD company
+        $this->nsdCompany->users()->updateExistingPivot($this->siteSupervisor->id, [
+            'status' => 'suspended',
+        ]);
+
+        // currentCompany() returns null
+        $this->assertNull($this->siteSupervisor->fresh()->currentCompany());
+
+        // Web access is redirected to workspace.select
+        $response = $this->actingAs($this->siteSupervisor)->get(route('dashboard'));
+        $response->assertRedirect(route('workspace.select'));
+
+        // JSON / API access returns 403 Forbidden
+        $jsonResponse = $this->actingAs($this->siteSupervisor)->getJson(route('dashboard'));
+        $jsonResponse->assertStatus(403);
+    }
+
+    public function test_configured_company_resolves_deterministically_to_nsd_earth_movers(): void
+    {
+        $resolved = Company::configuredCompany();
+        $this->assertNotNull($resolved);
+        $this->assertEquals('nsd-earth-movers', $resolved->slug);
+        $this->assertEquals('NSD Earth Movers & Construction Ltd', $resolved->name);
+        $this->assertEquals($this->nsdCompany->id, Company::configuredCompanyId());
+    }
 }

@@ -34,4 +34,9 @@ class Site extends Model
     {
         return $this->hasMany(Warehouse::class);
     }
+
+    public function materialIssues(): HasMany
+    {
+        return $this->hasMany(MaterialIssue::class);
+    }
 }

@@ -23,13 +23,21 @@
             </form>
         @empty
             <div class="p-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-sm">
-                No company workspaces linked to this profile. Create your first workspace below.
+                @if(config('company.single_company_mode', true))
+                    No active company workspace assigned or membership revoked in NSD Earth Movers &amp; Construction Ltd. Please contact your system administrator.
+                @else
+                    No company workspaces linked to this profile. Create your first workspace below.
+                @endif
             </div>
         @endforelse
     </div>
 
     <div class="mt-6 pt-6 border-t border-gray-200/80 flex items-center justify-between">
-        <a href="{{ route('workspace.create') }}" class="text-xs font-semibold text-blue-600 hover:text-blue-800">+ Add New Company</a>
+        @if(! config('company.single_company_mode', true))
+            <a href="{{ route('workspace.create') }}" class="text-xs font-semibold text-blue-600 hover:text-blue-800">+ Add New Company</a>
+        @else
+            <span class="text-xs text-slate-500 font-medium">NSD Earth Movers &amp; Construction Ltd</span>
+        @endif
         <form method="POST" action="{{ route('logout') }}">
             @csrf
             <button type="submit" class="text-xs font-medium text-gray-500 hover:text-gray-700 cursor-pointer">Sign Out</button>

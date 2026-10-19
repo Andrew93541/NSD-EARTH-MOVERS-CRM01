@@ -458,6 +458,9 @@ class RoleBasedAccessAndIntegrityAuditTest extends TestCase
      */
     public function test_cross_company_isolation_and_workspace_switch_enforcement(): void
     {
+        // Explicitly configure multi-company mode for this multi-tenant regression test
+        config(['company.single_company_mode' => false]);
+
         // Company B User trying to view Company A's project
         $this->actingAs($this->companyBUser);
         session(['current_company_id' => $this->companyB->id]);

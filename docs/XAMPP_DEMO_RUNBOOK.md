@@ -86,7 +86,7 @@ Leave this PowerShell terminal window open during your demo.
 * Navigate to [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login).
 * Log in as `admin@buildflow.local` / `Password123!`.
 * Point out the top header: active company is **NSD Earth Movers & Construction Ltd**.
-* Show the tenant switcher in the top navigation (`NSD Earth Movers` vs `Apex Infra Developers`).
+* Point out single-company architecture: dedicated workspace branding for NSD Earth Movers & Construction Ltd with multi-company switching disabled.
 
 ### 2. Multi-Site Project Operations (`/projects`)
 * Click **Projects** in the navigation bar.

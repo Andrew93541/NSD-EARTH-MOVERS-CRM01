@@ -28,6 +28,8 @@ use App\Http\Controllers\SubcontractorController;
 use App\Http\Controllers\SubcontractorWorkOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\WorkspaceController;
+use App\Http\Controllers\QuotationController;
+use App\Http\Controllers\MaterialIssueController;
 use App\Http\Controllers\CompanyProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -73,6 +75,19 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/{client}', [ClientController::class, 'show'])->name('show');
         Route::get('/{client}/edit', [ClientController::class, 'edit'])->name('edit');
         Route::put('/{client}', [ClientController::class, 'update'])->name('update');
+    });
+
+    // Quotations and Estimates Module
+    Route::prefix('quotations')->name('quotations.')->group(function () {
+        Route::get('/', [QuotationController::class, 'index'])->name('index');
+        Route::get('/create', [QuotationController::class, 'create'])->name('create');
+        Route::post('/', [QuotationController::class, 'store'])->name('store');
+        Route::get('/{quotation}', [QuotationController::class, 'show'])->name('show');
+        Route::get('/{quotation}/edit', [QuotationController::class, 'edit'])->name('edit');
+        Route::put('/{quotation}', [QuotationController::class, 'update'])->name('update');
+        Route::patch('/{quotation}/status', [QuotationController::class, 'updateStatus'])->name('status');
+        Route::post('/{quotation}/convert-project', [QuotationController::class, 'convertToProject'])->name('convert');
+        Route::get('/{quotation}/print', [QuotationController::class, 'printView'])->name('print');
     });
 
     // Projects Module
@@ -124,6 +139,16 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/ledger', [InventoryController::class, 'ledger'])->name('ledger');
         Route::get('/transfer', [InventoryController::class, 'createTransfer'])->name('transfer');
         Route::post('/transfer', [InventoryController::class, 'storeTransfer'])->name('transfer.store');
+    });
+
+    // Material Issue to Site & Consumption Module
+    Route::prefix('material-issues')->name('material-issues.')->group(function () {
+        Route::get('/', [MaterialIssueController::class, 'index'])->name('index');
+        Route::get('/create', [MaterialIssueController::class, 'create'])->name('create');
+        Route::post('/', [MaterialIssueController::class, 'store'])->name('store');
+        Route::get('/{materialIssue}', [MaterialIssueController::class, 'show'])->name('show');
+        Route::get('/{materialIssue}/print', [MaterialIssueController::class, 'printSlip'])->name('print');
+        Route::post('/{materialIssue}/return', [MaterialIssueController::class, 'returnStock'])->name('return');
     });
 
     Route::prefix('procurement')->name('procurement.')->group(function () {
