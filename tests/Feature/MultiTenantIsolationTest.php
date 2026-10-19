@@ -25,6 +25,9 @@ class MultiTenantIsolationTest extends TestCase
     {
         parent::setUp();
 
+        // MultiTenantIsolationTest explicitly exercises legacy multi-tenant isolation
+        config(['company.single_company_mode' => false]);
+
         // Company A setup
         $this->companyA = Company::create([
             'name' => 'Company Alpha Infrastructure',

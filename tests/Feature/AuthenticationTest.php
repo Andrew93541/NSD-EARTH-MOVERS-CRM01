@@ -21,8 +21,8 @@ class AuthenticationTest extends TestCase
     public function test_user_can_login_with_valid_credentials(): void
     {
         $company = Company::create([
-            'name' => 'Test Construction Ltd',
-            'slug' => 'test-construction',
+            'name' => 'NSD Earth Movers & Construction Ltd',
+            'slug' => 'nsd-earth-movers',
         ]);
 
         $user = User::create([

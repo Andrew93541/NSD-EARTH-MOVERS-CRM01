@@ -30,6 +30,9 @@ class DocumentAuthorizationDenyByDefaultTest extends TestCase
         parent::setUp();
         Storage::fake('local');
 
+        // DocumentAuthorizationDenyByDefaultTest explicitly exercises legacy multi-tenant isolation
+        config(['company.single_company_mode' => false]);
+
         $this->companyA = Company::create([
             'name' => 'Company A Infrastructure',
             'slug' => 'company-a',

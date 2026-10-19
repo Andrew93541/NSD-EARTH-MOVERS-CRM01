@@ -18,7 +18,23 @@ use Illuminate\View\View;
 
 class QuotationController extends Controller
 {
-    protected function authorizeQuotationAccess(): void
+    /**
+     * Resolve the active company ID or fail closed.
+     */
+    protected function getCompanyId(): int
+    {
+        $companyId = Company::configuredCompanyId() ?? session('current_company_id');
+        if (! $companyId) {
+            abort(403, 'No active company workspace resolved.');
+        }
+
+        return $companyId;
+    }
+
+    /**
+     * Authorize viewing quotations.
+     */
+    protected function authorizeQuotationView(): void
     {
         $user = Auth::user();
         $roleSlug = $user?->currentRole()?->slug;
@@ -26,8 +42,7 @@ class QuotationController extends Controller
             $user->hasPermission('*') ||
             $user->hasPermission('quotations.*') ||
             $user->hasPermission('quotations.view') ||
-            $user->hasPermission('projects.*') ||
-            in_array($roleSlug, ['owner', 'admin', 'project_manager', 'accountant'], true)
+            in_array($roleSlug, ['owner', 'admin', 'accountant'], true)
         );
 
         if (! $authorized) {
@@ -35,27 +50,90 @@ class QuotationController extends Controller
         }
     }
 
-    protected function authorizeQuotationManagement(): void
+    /**
+     * Authorize creating a quotation.
+     */
+    protected function authorizeQuotationCreate(): void
     {
         $user = Auth::user();
         $roleSlug = $user?->currentRole()?->slug;
         $authorized = $user && (
             $user->hasPermission('*') ||
             $user->hasPermission('quotations.*') ||
-            $user->hasPermission('projects.*') ||
-            in_array($roleSlug, ['owner', 'admin', 'project_manager', 'accountant'], true)
+            $user->hasPermission('quotations.create') ||
+            in_array($roleSlug, ['owner', 'admin'], true)
         );
 
         if (! $authorized) {
-            abort(403, 'Unauthorized. Creating or converting quotations requires Project Manager, Accountant, or Admin role.');
+            abort(403, 'Unauthorized. Creating commercial quotations requires explicit quotations.create permission or Company Owner role.');
+        }
+    }
+
+    /**
+     * Authorize modifying quotation pricing, rates, or items.
+     */
+    protected function authorizeQuotationPricing(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $authorized = $user && (
+            $user->hasPermission('*') ||
+            $user->hasPermission('quotations.*') ||
+            $user->hasPermission('quotations.pricing') ||
+            $user->hasPermission('quotations.edit') ||
+            in_array($roleSlug, ['owner', 'admin'], true)
+        );
+
+        if (! $authorized) {
+            abort(403, 'Unauthorized. Modifying quotation line pricing, discounts or taxes requires explicit quotations.pricing permission.');
+        }
+    }
+
+    /**
+     * Authorize updating quotation lifecycle status.
+     */
+    protected function authorizeQuotationStatus(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $authorized = $user && (
+            $user->hasPermission('*') ||
+            $user->hasPermission('quotations.*') ||
+            $user->hasPermission('quotations.status') ||
+            in_array($roleSlug, ['owner', 'admin'], true)
+        );
+
+        if (! $authorized) {
+            abort(403, 'Unauthorized. Updating quotation status requires explicit quotations.status permission or Company Owner role.');
+        }
+    }
+
+    /**
+     * Authorize converting accepted quotation to project.
+     */
+    protected function authorizeQuotationConvert(): void
+    {
+        $user = Auth::user();
+        $roleSlug = $user?->currentRole()?->slug;
+        $authorized = $user && (
+            $user->hasPermission('*') ||
+            $user->hasPermission('quotations.*') ||
+            $user->hasPermission('quotations.convert') ||
+            in_array($roleSlug, ['owner', 'admin'], true)
+        );
+
+        if (! $authorized) {
+            abort(403, 'Unauthorized. Converting an accepted quotation into an active project requires explicit quotations.convert permission.');
         }
     }
 
     public function index(Request $request): View
     {
-        $this->authorizeQuotationAccess();
+        $this->authorizeQuotationView();
+        $companyId = $this->getCompanyId();
 
         $query = Quotation::with(['client', 'creator', 'convertedProject'])
+            ->where('company_id', $companyId)
             ->latest('date');
 
         if ($status = $request->input('status')) {
@@ -82,7 +160,7 @@ class QuotationController extends Controller
 
         $quotations = $query->paginate(15)->withQueryString();
 
-        $allQuotes = Quotation::all();
+        $allQuotes = Quotation::where('company_id', $companyId)->get();
         $stats = [
             'total_count' => $allQuotes->count(),
             'total_value' => $allQuotes->sum('total_amount'),
@@ -96,15 +174,16 @@ class QuotationController extends Controller
 
     public function create(): View
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationCreate();
+        $companyId = $this->getCompanyId();
 
-        $clients = Client::where('status', 'active')->orderBy('name')->get();
+        $clients = Client::where('company_id', $companyId)->where('status', 'active')->orderBy('name')->get();
         if ($clients->isEmpty()) {
-            $clients = Client::orderBy('name')->get();
+            $clients = Client::where('company_id', $companyId)->orderBy('name')->get();
         }
 
         $year = date('Y');
-        $count = Quotation::whereYear('date', $year)->count() + 1;
+        $count = Quotation::where('company_id', $companyId)->whereYear('date', $year)->count() + 1;
         $defaultNumber = 'QT-' . $year . '-' . str_pad((string) $count, 4, '0', STR_PAD_LEFT);
 
         return view('quotations.create', compact('clients', 'defaultNumber'));
@@ -112,7 +191,8 @@ class QuotationController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationCreate();
+        $companyId = $this->getCompanyId();
 
         $validated = $request->validate([
             'client_id' => 'required|exists:clients,id',
@@ -136,8 +216,24 @@ class QuotationController extends Controller
             'items.*.notes' => 'nullable|string',
         ]);
 
-        $quotation = DB::transaction(function () use ($validated) {
+        // Prevent duplicate quotation numbers for the company
+        if (Quotation::where('company_id', $companyId)->where('quotation_number', $validated['quotation_number'])->exists()) {
+            throw ValidationException::withMessages([
+                'quotation_number' => "Quotation number '{$validated['quotation_number']}' already exists in this company.",
+            ]);
+        }
+
+        // Verify client belongs to company
+        $client = Client::where('id', $validated['client_id'])->where('company_id', $companyId)->first();
+        if (! $client) {
+            throw ValidationException::withMessages([
+                'client_id' => 'Selected client does not belong to the active company.',
+            ]);
+        }
+
+        $quotation = DB::transaction(function () use ($validated, $companyId) {
             $quotation = Quotation::create([
+                'company_id' => $companyId,
                 'quotation_number' => $validated['quotation_number'],
                 'client_id' => $validated['client_id'],
                 'date' => $validated['date'],
@@ -181,7 +277,10 @@ class QuotationController extends Controller
                 'action' => 'create_quotation',
                 'auditable_type' => Quotation::class,
                 'auditable_id' => $quotation->id,
-                'new_values' => ['quotation_number' => $quotation->quotation_number, 'total_amount' => $quotation->total_amount],
+                'new_values' => [
+                    'quotation_number' => $quotation->quotation_number,
+                    'total_amount' => $quotation->total_amount,
+                ],
                 'ip_address' => request()->ip(),
                 'user_agent' => request()->userAgent(),
             ]);
@@ -195,38 +294,50 @@ class QuotationController extends Controller
 
     public function show(Quotation $quotation): View
     {
-        $this->authorizeQuotationAccess();
+        $this->authorizeQuotationView();
+        $companyId = $this->getCompanyId();
 
-        $quotation->load(['client', 'items', 'creator', 'convertedProject', 'converter']);
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
+
+        $quotation->load(['client', 'items', 'creator', 'convertedProject']);
 
         return view('quotations.show', compact('quotation'));
     }
 
-    public function edit(Quotation $quotation): View|RedirectResponse
+    public function edit(Quotation $quotation): View
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationPricing();
+        $companyId = $this->getCompanyId();
 
-        if ($quotation->converted_project_id !== null) {
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
+
+        if ($quotation->converted_project_id) {
             return redirect()->route('quotations.show', $quotation)
-                ->with('error', 'This quotation has already been converted to an active project and cannot be modified.');
+                ->with('error', 'Converted quotations cannot be modified.');
         }
 
-        $clients = Client::where('status', 'active')->orderBy('name')->get();
-        if ($clients->isEmpty()) {
-            $clients = Client::orderBy('name')->get();
-        }
-        $quotation->load('items');
+        $clients = Client::where('company_id', $companyId)->where('status', 'active')->orderBy('name')->get();
+        $quotation->load(['client', 'items']);
 
         return view('quotations.edit', compact('quotation', 'clients'));
     }
 
     public function update(Request $request, Quotation $quotation): RedirectResponse
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationPricing();
+        $companyId = $this->getCompanyId();
 
-        if ($quotation->converted_project_id !== null) {
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
+
+        if ($quotation->converted_project_id) {
             return redirect()->route('quotations.show', $quotation)
-                ->with('error', 'This quotation has already been converted to a project and cannot be modified.');
+                ->with('error', 'Converted quotations cannot be modified.');
         }
 
         $validated = $request->validate([
@@ -250,6 +361,19 @@ class QuotationController extends Controller
             'items.*.unit_rate' => 'required|numeric|min:0',
             'items.*.notes' => 'nullable|string',
         ]);
+
+        if (Quotation::where('company_id', $companyId)->where('quotation_number', $validated['quotation_number'])->where('id', '!=', $quotation->id)->exists()) {
+            throw ValidationException::withMessages([
+                'quotation_number' => "Quotation number '{$validated['quotation_number']}' already exists.",
+            ]);
+        }
+
+        $client = Client::where('id', $validated['client_id'])->where('company_id', $companyId)->first();
+        if (! $client) {
+            throw ValidationException::withMessages([
+                'client_id' => 'Selected client does not belong to the active company.',
+            ]);
+        }
 
         DB::transaction(function () use ($quotation, $validated) {
             $quotation->update([
@@ -309,7 +433,12 @@ class QuotationController extends Controller
 
     public function updateStatus(Request $request, Quotation $quotation): RedirectResponse
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationStatus();
+        $companyId = $this->getCompanyId();
+
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
 
         $validated = $request->validate([
             'status' => 'required|in:draft,sent,accepted,rejected,expired',
@@ -349,27 +478,30 @@ class QuotationController extends Controller
 
     public function convertToProject(Request $request, Quotation $quotation): RedirectResponse
     {
-        $this->authorizeQuotationManagement();
+        $this->authorizeQuotationConvert();
+        $companyId = $this->getCompanyId();
+
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
 
         $validated = $request->validate([
             'project_name' => 'nullable|string|max:255',
             'start_date' => 'nullable|date',
             'target_completion_date' => 'nullable|date|after_or_equal:start_date',
-            'description' => 'nullable|string',
+            'manager_id' => 'nullable|exists:users,id',
         ]);
 
         try {
-            $overrides = array_filter([
+            $project = $quotation->convertToProject(Auth::user(), [
                 'name' => $validated['project_name'] ?? null,
                 'start_date' => $validated['start_date'] ?? null,
                 'target_completion_date' => $validated['target_completion_date'] ?? null,
-                'description' => $validated['description'] ?? null,
+                'manager_id' => $validated['manager_id'] ?? null,
             ]);
 
-            $project = $quotation->convertToProject(Auth::user(), $overrides);
-
             return redirect()->route('projects.show', $project)
-                ->with('success', "Quotation {$quotation->quotation_number} successfully converted to Project {$project->name} ({$project->code}).");
+                ->with('success', "Quotation {$quotation->quotation_number} successfully converted to Project {$project->code} ({$project->name}).");
         } catch (DomainException $e) {
             return redirect()->route('quotations.show', $quotation)
                 ->with('error', $e->getMessage());
@@ -378,10 +510,15 @@ class QuotationController extends Controller
 
     public function printView(Quotation $quotation): View
     {
-        $this->authorizeQuotationAccess();
+        $this->authorizeQuotationView();
+        $companyId = $this->getCompanyId();
 
-        $quotation->load(['client', 'items', 'creator', 'convertedProject']);
-        $company = Company::configuredCompany();
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            abort(403, 'Unauthorized access to quotation belonging to another company.');
+        }
+
+        $quotation->load(['client', 'items', 'creator']);
+        $company = Company::configuredCompany() ?? $quotation->company;
 
         return view('quotations.print', compact('quotation', 'company'));
     }

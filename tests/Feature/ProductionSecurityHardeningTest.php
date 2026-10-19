@@ -31,6 +31,9 @@ class ProductionSecurityHardeningTest extends TestCase
     {
         parent::setUp();
 
+        // ProductionSecurityHardeningTest explicitly exercises cross-tenant isolation and security
+        config(['company.single_company_mode' => false]);
+
         Storage::fake('local');
 
         $this->companyA = Company::create([

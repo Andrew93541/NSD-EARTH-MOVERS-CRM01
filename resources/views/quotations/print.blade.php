@@ -44,14 +44,20 @@
                             NSD
                         </div>
                         <div>
-                            <h1 class="text-xl font-extrabold text-slate-900 tracking-tight">NSD EARTH MOVERS &amp; CONSTRUCTION LTD</h1>
-                            <p class="text-xs font-semibold text-slate-600">Heavy Civil Engineering, Earthworks &amp; Infrastructure Contractors</p>
+                            <h1 class="text-xl font-extrabold text-slate-900 tracking-tight">{{ $company->name ?? 'NSD EARTH MOVERS & CONSTRUCTION LTD' }}</h1>
+                            <p class="text-xs font-semibold text-slate-600">{{ $company->legal_name ?? 'Heavy Civil Engineering, Earthworks & Infrastructure Contractors' }}</p>
                         </div>
                     </div>
                     <div class="text-[11px] text-slate-500 mt-3 space-y-0.5">
-                        <p>Plot 42, Peenya Industrial Area 2nd Phase, Bengaluru, Karnataka 560058</p>
-                        <p><span class="font-semibold text-slate-700">Phone:</span> +91 80 4123 5678 | <span class="font-semibold text-slate-700">Email:</span> contracts@nsdinfra.com</p>
-                        <p><span class="font-semibold text-slate-700">GSTIN:</span> 29AAACN1234F1Z5 | <span class="font-semibold text-slate-700">PAN:</span> AAACN1234F</p>
+                        <p>{{ $company->address ?? 'Registered Office Address Pending Formal Verification' }}</p>
+                        <p>
+                            <span class="font-semibold text-slate-700">Phone:</span> {{ $company->phone ?? 'Phone Not Specified' }} | 
+                            <span class="font-semibold text-slate-700">Email:</span> {{ $company->email ?? 'Email Not Specified' }}
+                        </p>
+                        <p>
+                            <span class="font-semibold text-slate-700">GSTIN:</span> {{ $company->gstin ?? 'Not Available / Unregistered' }} | 
+                            <span class="font-semibold text-slate-700">PAN:</span> {{ $company->pan ?? 'Not Available' }}
+                        </p>
                     </div>
                 </div>
 
@@ -177,16 +183,28 @@
 
         <!-- Bank Details & Terms & Conditions -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-xs">
+            @php
+                $bankDetails = $company->settings['bank_details'] ?? null;
+            @endphp
+            @if($bankDetails && !empty($bankDetails['account_number']))
             <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/80">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Bank Payment Details:</span>
                 <div class="text-[11px] text-slate-700 space-y-0.5 font-mono">
-                    <p><span class="text-slate-500">Beneficiary:</span> NSD Earth Movers &amp; Infrastructure Pvt Ltd</p>
-                    <p><span class="text-slate-500">Bank:</span> State Bank of India</p>
-                    <p><span class="text-slate-500">Account No:</span> 389201948201 (Current A/c)</p>
-                    <p><span class="text-slate-500">IFSC Code:</span> SBIN0001234</p>
-                    <p><span class="text-slate-500">Branch:</span> Peenya Industrial Area, Bengaluru</p>
+                    <p><span class="text-slate-500 font-sans">Beneficiary:</span> {{ $bankDetails['beneficiary_name'] ?? $company->legal_name ?? $company->name }}</p>
+                    <p><span class="text-slate-500 font-sans">Bank:</span> {{ $bankDetails['bank_name'] ?? '—' }}</p>
+                    <p><span class="text-slate-500 font-sans">Account No:</span> {{ $bankDetails['account_number'] ?? '—' }}</p>
+                    <p><span class="text-slate-500 font-sans">IFSC Code:</span> {{ $bankDetails['ifsc'] ?? '—' }}</p>
+                    @if(!empty($bankDetails['branch']))
+                    <p><span class="text-slate-500 font-sans">Branch:</span> {{ $bankDetails['branch'] }}</p>
+                    @endif
                 </div>
             </div>
+            @else
+            <div class="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Bank Payment Details:</span>
+                <p class="text-[11px] text-slate-500 italic mt-1">Official bank remittance details will be furnished on formal commercial award or verified proforma invoice.</p>
+            </div>
+            @endif
 
             <div class="p-4 bg-slate-50 rounded-xl border border-slate-200/80">
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Commercial Terms:</span>
@@ -205,11 +223,11 @@
             </div>
 
             <div>
-                <div class="h-16 flex items-center justify-center text-blue-600 font-serif italic text-sm">
-                    Rajesh Varma
+                <div class="h-16 flex items-center justify-center text-slate-700 font-serif italic text-sm">
+                    {{ $quotation->creator->name ?? 'Authorized Representative' }}
                 </div>
-                <div class="border-t border-slate-300 pt-2 font-semibold text-slate-800">For NSD Earth Movers &amp; Construction Ltd</div>
-                <div class="text-[10px] text-slate-400 mt-0.5">Authorized Signatory</div>
+                <div class="border-t border-slate-300 pt-2 font-semibold text-slate-800">For {{ $company->name ?? 'NSD Earth Movers & Construction Ltd' }}</div>
+                <div class="text-[10px] text-slate-400 mt-0.5">{{ $quotation->creator ? ($quotation->creator->currentRole()?->name ?? 'Authorized Signatory') : 'Authorized Signatory' }}</div>
             </div>
         </div>
 

@@ -21,24 +21,26 @@ class Company extends Model
     public static function configuredCompany(): ?Company
     {
         $slug = config('company.default_slug', 'nsd-earth-movers');
+        $name = config('company.default_name', 'NSD Earth Movers & Construction Ltd');
+
         $company = static::where('slug', $slug)->first()
-            ?? static::where('name', 'like', '%NSD Earth Movers%')->first();
+            ?? ($name ? static::where('name', 'like', '%' . $name . '%')->first() : null);
 
         if ($company) {
             return $company;
         }
 
-        // In testing environment only, provide fallback for legacy tests that instantiate generic mock companies
-        if (app()->environment('testing')) {
+        // In testing environment only, provide fallback if legacy multi-company mode is explicitly enabled
+        if (app()->environment('testing') && ! config('company.single_company_mode', true)) {
             return static::orderBy('id')->first();
         }
 
         return null;
     }
 
-    public static function configuredCompanyId(): int
+    public static function configuredCompanyId(): ?int
     {
-        return static::configuredCompany()?->id ?? 1;
+        return static::configuredCompany()?->id;
     }
 
     public function users(): BelongsToMany
