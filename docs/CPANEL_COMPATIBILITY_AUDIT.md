@@ -42,7 +42,7 @@ Each system component is categorized into one of three support tiers:
 | **Task Scheduler** | `php artisan schedule:run` | **Tier 2** | Supported via **cPanel Cron Jobs** interface running once per minute (`* * * * *`). |
 | **Email Service** | SMTP Delivery | **Tier 1** | Supported natively via cPanel Webmail (Exim) accounts or external transactional mailers (SendGrid, Mailgun). |
 | **WebSockets** | Laravel Reverb (`reverb:start`) | **Tier 3 (Workaround)** | Cannot run persistent custom-port daemon on shared cPanel without root. **Workaround:** The CRM's built-in AJAX and polling fallback handles updates seamlessly. |
-| **Anti-Malware Scanner** | ClamAV Daemon (`clamd`) | **Tier 3 (Workaround)** | ClamAV daemon is rarely enabled for shared users. `SCANNER_ENABLED=false` or `SCANNER_FAIL_CLOSED=false` must be set in `.env` to avoid upload rejection. |
+| **Anti-Malware Scanner** | ClamAV Daemon (`clamd`) | **Tier 3 (Enterprise Setup)** | Shared cPanel typically lacks a local `clamd` daemon. Connect to a private remote scanning node via TCP port 3310. Production mandates fail-closed protection; uploads are securely blocked until an approved scanner is connected. |
 
 ---
 
@@ -75,16 +75,16 @@ Each system component is categorized into one of three support tiers:
 - **Database Engine:** `InnoDB` (required for row-level locking, foreign key integrity, and atomic transactions in stock ledgers and accounting journals).
 - **Naming Conventions:** cPanel prefixes database names and usernames with the cPanel account name (e.g. `cpaneluser_crm` and `cpaneluser_crmuser`).
 
-### 3.4 File Storage and Document Protection
+### 3.4 File Storage, Document Protection & Malware Scanning
 - **Public Storage:** Avatars and public assets reside in `storage/app/public/` and are served via `public/storage`.
 - **Confidential Document Protection:**
   - Contracts, quotations, employee payslips, vendor invoices, retention certificates, and tax reports reside in `storage/app/private/`.
   - These files are **never** accessible through direct URLs.
   - Downloads are guarded by [DocumentPolicy.php](file:///Users/andrew/Developer/NSD%20EARTH%20MOVERS%20CRM/app/Policies/DocumentPolicy.php) and authorized through controller routes with company scoping (`company_id`) and role permission checks.
-- **ClamAV Anti-Malware Notice:**
-  - The application includes an enterprise ClamAV scanner integration in [filesystems.php](file:///Users/andrew/Developer/NSD%20EARTH%20MOVERS%20CRM/config/filesystems.php).
-  - In production, if ClamAV daemon is unreachable and `SCANNER_FAIL_CLOSED=true`, file uploads will be blocked.
-  - On shared cPanel where `clamd` is not running, set `SCANNER_ENABLED=false` or `SCANNER_FAIL_CLOSED=false` in `.env`.
+- **Enterprise Malware Scanning Strategy:**
+  - The application enforces a strict **fail-closed** scanning architecture (`SCANNER_FAIL_CLOSED=true`). In production, if a scanning daemon is unreachable or times out, uploads are intentionally blocked to protect the organization against ransomware, malicious scripts, and infected PDFs.
+  - **Approved Strategy for Shared cPanel:** Shared hosting accounts rarely offer a local `clamd` UNIX socket. The organization should deploy a lightweight scanning container or micro-instance (running `clamav-daemon` on port 3310) and configure `CLAMAV_HOST` and `CLAMAV_PORT` in `.env`.
+  - **Fail-Closed Gate:** If no scanning service is available, file uploads remain securely blocked until an approved scanning node is connected. Never disable fail-closed protections in production.
 
 ### 3.5 Cron Jobs & Task Scheduling
 - The application relies on Laravel's scheduler to run operational reminders (`buildflow:send-reminders` every 4 hours), clean up expired sessions, and check overdue items.

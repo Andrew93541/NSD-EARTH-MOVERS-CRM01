@@ -170,7 +170,11 @@ APP_TIMEZONE=Asia/Kolkata
 SESSION_DRIVER=database
 SESSION_LIFETIME=120
 SESSION_SECURE_COOKIE=true
-TRUSTED_PROXIES=*
+
+# Reverse Proxy Security:
+# Leave EMPTY if clients connect directly to cPanel Apache (prevents header spoofing).
+# If using Cloudflare or a reverse proxy, set specific proxy IP/CIDR ranges (NEVER use * in production):
+TRUSTED_PROXIES=
 
 # -------------------------------------------------------------
 # DATABASE CONFIGURATION
@@ -203,11 +207,15 @@ MAIL_FROM_ADDRESS="notifications@nsdearthmovers.com"
 MAIL_FROM_NAME="NSD Earth Movers CRM"
 
 # -------------------------------------------------------------
-# SCANNER COMPATIBILITY (Shared Hosting)
+# ANTI-MALWARE / CLAMAV SCANNER CONFIGURATION
 # -------------------------------------------------------------
-# In shared hosting without a local ClamAV daemon:
-SCANNER_ENABLED=false
-SCANNER_FAIL_CLOSED=false
+# Production policy enforces FAIL-CLOSED protection.
+# If shared cPanel lacks local clamd daemon, point to your private scanning micro-instance/container:
+SCANNER_ENABLED=true
+SCANNER_FAIL_CLOSED=true
+CLAMAV_HOST=10.0.0.5                 # Replace with your dedicated ClamAV instance IP/hostname
+CLAMAV_PORT=3310
+CLAMAV_TIMEOUT=5
 
 # -------------------------------------------------------------
 # BACKUP & ENCRYPTION KEY (AES-256-GCM)
@@ -251,22 +259,23 @@ In cPanel File Manager, ensure the following folders have permissions set to `07
 - `/home/YOUR_CPANEL_USER/crm_app/bootstrap/cache`
 
 ### 7.2 Create Public Storage Symlink
-If Terminal is available:
+If cPanel Terminal is available:
 ```bash
 cd /home/YOUR_CPANEL_USER/crm_app
 php artisan storage:link
 ```
 
-> **Symlink Fallback (If SSH/Terminal is Disabled):**  
-> Create a temporary script `/home/YOUR_CPANEL_USER/public_html/symlink_setup.php`:
-> ```php
-> <?php
-> $target = '/home/YOUR_CPANEL_USER/crm_app/storage/app/public';
-> $shortcut = '/home/YOUR_CPANEL_USER/crm_app/public/storage';
-> symlink($target, $shortcut);
-> echo "Symlink created successfully!";
-> ```
-> Visit `https://yourdomain.com/symlink_setup.php` once in your browser, verify success, and **immediately delete** the file.
+> **Secure Symlink Creation Without SSH/Terminal:**  
+> If SSH and cPanel Terminal are disabled by your hosting provider, **never** place an unsecured PHP script in the public web root. Instead, use cPanel's built-in **Cron Jobs** tool to execute a one-time shell command:
+> 1. Go to cPanel -> **Cron Jobs**.
+> 2. Create a temporary job set to run once (e.g. at the next minute):
+>    ```bash
+>    ln -s /home/YOUR_CPANEL_USER/crm_app/storage/app/public /home/YOUR_CPANEL_USER/crm_app/public/storage
+>    ```
+>    *(Or if using Option B: `ln -s /home/YOUR_CPANEL_USER/crm_app/storage/app/public /home/YOUR_CPANEL_USER/public_html/storage`)*
+> 3. Wait 1 minute for the cron to execute.
+> 4. Delete the temporary cron entry immediately.  
+> This securely creates the symlink directly on the server filesystem without creating any web-accessible entry points.
 
 ---
 

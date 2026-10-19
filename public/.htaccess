@@ -11,17 +11,30 @@ Options -Indexes -MultiViews
 
 # Block access to hidden files and sensitive extensions (defense in depth)
 <FilesMatch "^\.(?!well-known)">
-    Order allow,deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 <FilesMatch "(^#.*#|\.(bak|config|dist|fla|inc|ini|log|psd|sh|sql|sw[op]|env.*)|~)$">
-    Order allow,deny
-    Deny from all
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # Allow cPanel AutoSSL and Let's Encrypt verification files to pass through untouched
+    RewriteRule ^\.well-known/ - [L]
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
