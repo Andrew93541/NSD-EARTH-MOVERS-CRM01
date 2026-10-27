@@ -34,6 +34,7 @@ use App\Http\Controllers\CompanyProfileController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ConstructionWorkCategoryController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\WorkOrderController;
 use App\Http\Controllers\Webhook\GitHubDeployWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -123,6 +124,21 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/{site}', [SiteOperationController::class, 'show'])->name('show');
         Route::get('/{site}/logs/create', [SiteOperationController::class, 'createLog'])->name('logs.create');
         Route::post('/{site}/logs', [SiteOperationController::class, 'storeLog'])->name('logs.store');
+    });
+
+    // Work Orders Register (Client-Issued & Internal Operational Work Orders)
+    Route::prefix('work-orders-register')->name('work-orders-register.')->group(function () {
+        Route::get('/', [WorkOrderController::class, 'index'])->name('index');
+        Route::get('/create', [WorkOrderController::class, 'create'])->name('create');
+        Route::post('/upload-client', [WorkOrderController::class, 'uploadClient'])->name('upload-client')->middleware('throttle:30,1');
+        Route::post('/internal', [WorkOrderController::class, 'storeInternal'])->name('store-internal');
+        Route::get('/{workOrder}', [WorkOrderController::class, 'show'])->name('show');
+        Route::get('/{workOrder}/verify', [WorkOrderController::class, 'verify'])->name('verify');
+        Route::post('/{workOrder}/verify', [WorkOrderController::class, 'confirmVerification'])->name('confirm-verification');
+        Route::post('/{workOrder}/approve', [WorkOrderController::class, 'approve'])->name('approve');
+        Route::post('/{workOrder}/dismiss-duplicate', [WorkOrderController::class, 'dismissDuplicate'])->name('dismiss-duplicate');
+        Route::get('/{workOrder}/document/{document}/preview', [WorkOrderController::class, 'previewDocument'])->name('preview-document');
+        Route::get('/{workOrder}/document/{document}/download', [WorkOrderController::class, 'downloadDocument'])->name('download-document');
     });
 
     // Workforce & Attendance Module
